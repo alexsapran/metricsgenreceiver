@@ -1,0 +1,131 @@
+package loggen
+
+import (
+	"go.opentelemetry.io/collector/pdata/plog"
+)
+
+var redisVersions = []string{"7.2.4", "7.0.12", "6.2.6"}
+var redisEvictionPolicies = []string{"allkeys-lru", "volatile-lru", "noeviction"}
+
+func RedisProfile() *AppProfile {
+	return &AppProfile{
+		Name:            "redis",
+		SeverityWeights: [4]int{70, 90, 98, 100},
+		Messages: append(
+			redisInfoLogs(),
+			redisWarnLogs()...,
+		),
+	}
+}
+
+func redisInfoLogs() []MessageTemplate {
+	tsLayout := "02 Jan 2006 15:04:05.000"
+	pid := RandomInt(1, 99999)
+	role := RandomFrom("M", "S", "C")
+	return []MessageTemplate{
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%d:%s %s # Server started, Redis version=%s",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomPath(redisVersions)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%d:%s %s * Ready to accept connections tcp",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%d:%s %s * DB loaded from append only file: %d seconds",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomInt(1, 15)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%d:%s %s * %d clients connected (%d replicas), %d bytes in use",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomInt(1, 100), RandomInt(0, 5), RandomInt(1000000, 50000000)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%d:%s %s * Background saving started by pid %d",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomInt(1000, 99999)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%d:%s %s * Background saving terminated with success",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%d:%s %s # Connection accepted from %s:%d",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomIP, RandomInt(40000, 65000)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+	}
+}
+
+func redisWarnLogs() []MessageTemplate {
+	tsLayout := "02 Jan 2006 15:04:05.000"
+	pid := RandomInt(1, 99999)
+	role := RandomFrom("M", "S")
+	return []MessageTemplate{
+		{
+			Severity: plog.SeverityNumberWarn,
+			Format:   "%d:%s %s # WARNING: %d clients found in the connected clients list with idle time >= %d seconds, disconnecting them.",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomInt(1, 10), RandomInt(300, 3600)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberWarn,
+			Format:   "%d:%s %s # WARNING overcommit_memory is set to 0! Background save may fail under low memory condition.",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberWarn,
+			Format:   "%d:%s %s * Reaching maxmemory limit (%d bytes), evicting keys using %s policy",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomInt(100000000, 8000000000), RandomPath(redisEvictionPolicies)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%d:%s %s # Error accepting a client connection: %s",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomFrom("Connection reset by peer", "Invalid argument", "Too many open files")},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%d:%s %s # Error opening /setting AOF rewrite IPC pipes: %s",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomFrom("Broken pipe", "Invalid argument", "No such file or directory")},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%d:%s %s # MISCONF Redis is configured to save RDB snapshots, but it's currently unable to persist to disk.",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%d:%s %s # Can't save in background: fork: Cannot allocate memory",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%d:%s %s # Fatal error, can't open config file '%s'",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomFrom("/etc/redis/redis.conf", "/usr/local/etc/redis.conf")},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%d:%s %s # === REDIS BUG REPORT START: Cut & paste starting from here ===",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+	}
+}

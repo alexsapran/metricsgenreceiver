@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/elastic/metricsgenreceiver/metricsgenreceiver/internal/loggen"
 	"github.com/elastic/metricsgenreceiver/metricsgenreceiver/internal/logstmpl"
 	"github.com/elastic/metricsgenreceiver/metricsgenreceiver/internal/metadata"
 	"go.opentelemetry.io/collector/component"
@@ -153,21 +154,6 @@ func addLogJitter(t time.Time, stdDev time.Duration, interval time.Duration, ra 
 	return t.Add(jitter)
 }
 
-// pickSeverity returns plog.SeverityNumber with 70% INFO, 20% WARN, 8% ERROR, 2% FATAL
-func pickSeverity(rng *rand.Rand) plog.SeverityNumber {
-	n := rng.Intn(100)
-	switch {
-	case n < 70:
-		return plog.SeverityNumberInfo
-	case n < 90:
-		return plog.SeverityNumberWarn
-	case n < 98:
-		return plog.SeverityNumberError
-	default:
-		return plog.SeverityNumberFatal
-	}
-}
-
 func severityText(sev plog.SeverityNumber) string {
 	switch sev {
 	case plog.SeverityNumberInfo:
@@ -236,17 +222,24 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 		serviceName = v.Str()
 	}
 
+	profile := loggen.GetAppProfile(scn.config.Path)
+	if profile == nil {
+		profile = loggen.GenericProfile(serviceName)
+	}
+
 	for i := 0; i < logsPerInterval; i++ {
 		lr := sl.LogRecords().AppendEmpty()
 		instanceTime := addLogJitter(currentTime, r.cfg.IntervalJitterStdDev, r.cfg.Interval, rng)
 		lr.SetTimestamp(pcommon.NewTimestampFromTime(instanceTime))
 
-		sev := pickSeverity(rng)
+		body, sev, attrs := loggen.GenerateLogRecord(rng, *profile, instanceTime)
 		lr.SetSeverityNumber(sev)
 		lr.SetSeverityText(severityText(sev))
-
-		body := "log message from " + serviceName + " at " + instanceTime.Format(time.RFC3339Nano)
 		lr.Body().SetStr(body)
+
+		for k, v := range attrs {
+			lr.Attributes().PutStr(k, v)
+		}
 
 		// Random trace ID (16 bytes) and span ID (8 bytes)
 		var traceID [16]byte

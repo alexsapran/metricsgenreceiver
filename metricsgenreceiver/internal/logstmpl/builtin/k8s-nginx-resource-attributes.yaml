@@ -1,0 +1,37 @@
+resourceLogs:
+  - resource:
+      attributes:
+        - key: k8s.cluster.name
+          value:
+            stringValue: "{{.RandomFrom `production-cluster` `staging-cluster`}}"
+        - key: k8s.namespace.name
+          value:
+            stringValue: "{{.ModFrom .InstanceID `ingress-nginx` `default`}}"
+        - key: k8s.node.name
+          value:
+            stringValue: "node-{{.Mod .InstanceID 3}}"
+        - key: k8s.pod.name
+          value:
+            stringValue: "nginx-{{.RandomHex 10}}"
+        - key: k8s.pod.uid
+          value:
+            stringValue: "{{.UUID}}"
+        - key: k8s.container.name
+          value:
+            stringValue: "nginx"
+        - key: container.id
+          value:
+            stringValue: "{{.RandomHex 64}}"
+        - key: container.image.name
+          value:
+            stringValue: "nginx"
+        - key: container.image.tag
+          value:
+            stringValue: "1.25.3"
+        - key: service.name
+          value:
+            stringValue: "nginx"
+    scopeLogs:
+      - scope:
+          name: "log-generator"
+        logRecords: []

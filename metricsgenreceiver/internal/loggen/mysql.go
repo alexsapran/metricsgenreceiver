@@ -1,0 +1,130 @@
+package loggen
+
+import (
+	"go.opentelemetry.io/collector/pdata/plog"
+)
+
+var mysqlDBNames = []string{"orders", "users", "products", "analytics", "auth", "main"}
+var mysqlUsers = []string{"app_user", "replicator", "admin", "root", "migration"}
+var mysqlTables = []string{"users", "orders", "products", "sessions", "audit_log"}
+var mysqlColumns = []string{"id", "user_id", "email", "status", "created_at"}
+
+func MySQLProfile() *AppProfile {
+	return &AppProfile{
+		Name:            "mysql",
+		SeverityWeights: [4]int{70, 90, 98, 100},
+		Messages: append(
+			mysqlInfoLogs(),
+			mysqlWarnLogs()...,
+		),
+	}
+}
+
+func mysqlInfoLogs() []MessageTemplate {
+	tsLayout := "2006-01-02 15:04:05.000000"
+	threadID := RandomInt(1, 100)
+	connID := RandomInt(1000, 99999)
+	code := RandomFrom("010901", "010907", "010909", "010912")
+	db := RandomPath(mysqlDBNames)
+	user := RandomPath(mysqlUsers)
+	hostname := RandomFrom("mysql-primary-0", "mysql-replica-1", "mysql-2")
+	return []MessageTemplate{
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%s %d [Note] [MY-%s] [Server] %s: ready for connections. Version: '8.0.36' socket: '/var/run/mysqld/mysqld.sock' port: 3306",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, hostname},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%s %d [Note] [MY-%s] [InnoDB] Buffer pool(s) load completed at %s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, Timestamp(tsLayout)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%s %d [Note] [MY-%s] [Server] Aborted connection %d to db: '%s' user: '%s' host: '%s' (Got timeout reading communication packets)",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, connID, db, user, RandomIP},
+			AttrFromArg: map[string]int{"db.name": 4},
+			Attrs:       map[string]ArgGenerator{"db.system": Static("mysql"), "db.user": user},
+		},
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%s %d [Note] [MY-%s] [Repl] Replica SQL thread for channel '' started, Replica has read all relay log; waiting for more updates",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+	}
+}
+
+func mysqlWarnLogs() []MessageTemplate {
+	tsLayout := "2006-01-02 15:04:05.000000"
+	threadID := RandomInt(1, 100)
+	connID := RandomInt(1000, 99999)
+	code := RandomFrom("010907", "010911", "010914")
+	db := RandomPath(mysqlDBNames)
+	user := RandomPath(mysqlUsers)
+	osThreadID := RandomInt(1000, 99999)
+	table := RandomPath(mysqlTables)
+	column := RandomPath(mysqlColumns)
+	duration := RandomInt(120, 300)
+	return []MessageTemplate{
+		{
+			Severity: plog.SeverityNumberWarn,
+			Format:   "%s %d [Warning] [MY-%s] [Server] Aborted connection %d to db: '%s' user: '%s' host: '%s' (Got an error reading communication packets)",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, connID, db, user, RandomIP},
+			AttrFromArg: map[string]int{"db.name": 4},
+			Attrs:       map[string]ArgGenerator{"db.system": Static("mysql"), "db.user": user},
+		},
+		{
+			Severity: plog.SeverityNumberWarn,
+			Format:   "%s %d [Warning] [MY-%s] [InnoDB] A long semaphore wait (>120 seconds, %ds) for thread %d",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, duration, osThreadID},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberWarn,
+			Format:   "%s %d [Warning] [MY-%s] [Server] Slow query detected: %ds, rows_examined: %d, db: '%s', query: 'SELECT * FROM %s WHERE %s = %%s'",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, RandomInt(2, 30), RandomInt(1000, 100000), db, table, column},
+			AttrFromArg: map[string]int{"db.name": 6},
+			Attrs:       map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%s %d [ERROR] [MY-%s] [Server] Can't start server: Bind on TCP/IP port: Address already in use",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%s %d [ERROR] [MY-%s] [InnoDB] Cannot allocate memory for the buffer pool",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%s %d [ERROR] [MY-%s] [Server] Got error %d from storage engine",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, RandomInt(1030, 1035)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%s %d [ERROR] [MY-%s] [Repl] Error 'Table '%s.%s' doesn't exist' on query.",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, db, table},
+			AttrFromArg: map[string]int{"db.name": 3},
+			Attrs:       map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%s %d [ERROR] [MY-%s] [InnoDB] LATEST DETECTED DEADLOCK",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%s %d [ERROR] [MY-%s] [Server] Out of memory; check if mysqld or some other process uses all available memory",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+	}
+}

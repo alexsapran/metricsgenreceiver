@@ -12,7 +12,8 @@ func NewFactory() receiver.Factory {
 	return receiver.NewFactory(
 		metadata.Type,
 		createDefaultConfig,
-		receiver.WithMetrics(createMetricsReceiver, metadata.MetricsStability))
+		receiver.WithMetrics(createMetricsReceiver, metadata.MetricsStability),
+		receiver.WithLogs(createLogsReceiver, metadata.LogsStability))
 }
 
 func createMetricsReceiver(
@@ -27,5 +28,20 @@ func createMetricsReceiver(
 		return nil, err
 	}
 	r.nextMetrics = consumer
+	return r, nil
+}
+
+func createLogsReceiver(
+	_ context.Context,
+	set receiver.Settings,
+	cfg component.Config,
+	consumer consumer.Logs,
+) (receiver.Logs, error) {
+	oCfg := cfg.(*Config)
+	r, err := newLogsGenReceiver(oCfg, set)
+	if err != nil {
+		return nil, err
+	}
+	r.nextLogs = consumer
 	return r, nil
 }

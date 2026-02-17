@@ -3,7 +3,7 @@ type: metricsgen
 status:
   class: receiver
   stability:
-    development: [metrics]
+    development: [metrics, logs]
   distributions: [contrib]
   codeowners:
     active: [felixbarny, ruflin]

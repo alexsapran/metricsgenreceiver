@@ -30,16 +30,12 @@ func testdataConfigYamlAsMap() *Config {
 	endTime, _ := time.Parse(time.RFC3339, "2024-12-17T00:00:31Z")
 	interval, _ := time.ParseDuration("30s")
 	return &Config{
-		StartTime: startTime,
-		EndTime:   endTime,
-		Interval:  interval,
-		Seed:      123,
-		Scenarios: []ScenarioCfg{
-			{
-				Path:  "testdata/metricstemplate",
-				Scale: 10,
-			},
-		},
+		StartTime:    startTime,
+		EndTime:      endTime,
+		Interval:     interval,
+		Seed:         123,
+		Scenarios:    []ScenarioCfg{{Path: "testdata/metricstemplate", Scale: 10}},
+		LogScenarios: []LogScenarioCfg{},
 		Distribution: distribution.DistributionCfg{
 			MedianMonotonicSum: 100,
 			StdDevGaugePct:     0.01,

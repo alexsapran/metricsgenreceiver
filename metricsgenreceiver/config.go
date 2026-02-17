@@ -21,6 +21,7 @@ type Config struct {
 	ExitAfterEndTimeout               time.Duration                `mapstructure:"exit_after_end_timeout"`
 	Seed                              int64                        `mapstructure:"seed"`
 	Scenarios                         []ScenarioCfg                `mapstructure:"scenarios"`
+	LogScenarios                      []LogScenarioCfg             `mapstructure:"log_scenarios"`
 	Distribution                      distribution.DistributionCfg `mapstructure:"distribution"`
 	ExponentialHistogramsTemplatePath string                       `mapstructure:"exponential_histograms_template_path"`
 }
@@ -33,6 +34,14 @@ type ScenarioCfg struct {
 	TemplateVars        map[string]any `mapstructure:"template_vars"`
 	TemporalityOverride string         `mapstructure:"temporality_override"`
 	HistogramOverride   string         `mapstructure:"histogram_override"`
+}
+
+type LogScenarioCfg struct {
+	Path            string         `mapstructure:"path"`
+	Scale           int            `mapstructure:"scale"`
+	Concurrency     int            `mapstructure:"concurrency"`
+	TemplateVars    map[string]any `mapstructure:"template_vars"`
+	LogsPerInterval int            `mapstructure:"logs_per_interval"`
 }
 
 func (c ScenarioCfg) AggregationTemporalityOverride() pmetric.AggregationTemporality {
@@ -61,6 +70,7 @@ func createDefaultConfig() component.Config {
 	return &Config{
 		Seed:         0,
 		Scenarios:    make([]ScenarioCfg, 0),
+		LogScenarios: make([]LogScenarioCfg, 0),
 		Distribution: distribution.DefaultDistribution,
 	}
 }
@@ -80,6 +90,20 @@ func (cfg *Config) Validate() error {
 		}
 		if scn.Concurrency < 0 {
 			return fmt.Errorf("concurrency must be a positive number")
+		}
+	}
+	for _, scn := range cfg.LogScenarios {
+		if scn.Scale < 0 {
+			return fmt.Errorf("log_scenarios: scale must be non-negative")
+		}
+		if scn.Concurrency != 0 && scn.Scale > 0 && scn.Scale%scn.Concurrency != 0 {
+			return fmt.Errorf("log_scenarios: scale must be a multiple of concurrency")
+		}
+		if scn.Concurrency < 0 {
+			return fmt.Errorf("log_scenarios: concurrency must be non-negative")
+		}
+		if scn.LogsPerInterval < 0 {
+			return fmt.Errorf("log_scenarios: logs_per_interval must be non-negative")
 		}
 	}
 	return nil

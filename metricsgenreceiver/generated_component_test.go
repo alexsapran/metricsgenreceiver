@@ -32,11 +32,16 @@ func TestComponentLifecycle(t *testing.T) {
 		name     string
 		createFn func(ctx context.Context, set receiver.Settings, cfg component.Config) (component.Component, error)
 	}{
-
 		{
 			name: "metrics",
 			createFn: func(ctx context.Context, set receiver.Settings, cfg component.Config) (component.Component, error) {
 				return factory.CreateMetrics(ctx, set, cfg, consumertest.NewNop())
+			},
+		},
+		{
+			name: "logs",
+			createFn: func(ctx context.Context, set receiver.Settings, cfg component.Config) (component.Component, error) {
+				return factory.CreateLogs(ctx, set, cfg, consumertest.NewNop())
 			},
 		},
 	}

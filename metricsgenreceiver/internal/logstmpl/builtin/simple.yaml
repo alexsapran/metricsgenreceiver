@@ -1,0 +1,19 @@
+resourceLogs:
+  - resource:
+      attributes:
+        - key: service.name
+          value:
+            stringValue: "test-service"
+    scopeLogs:
+      - scope:
+          name: "log-generator"
+        logRecords:
+          - timeUnixNano: "0"
+            severityNumber: 9
+            severityText: "INFO"
+            body:
+              stringValue: "sample log message"
+            attributes:
+              - key: log.source
+                value:
+                  stringValue: "generator"

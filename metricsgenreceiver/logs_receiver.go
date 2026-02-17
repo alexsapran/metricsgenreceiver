@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/elastic/metricsgenreceiver/metricsgenreceiver/internal/loggen"
+	"github.com/elastic/metricsgenreceiver/metricsgenreceiver/internal/logstats"
 	"github.com/elastic/metricsgenreceiver/metricsgenreceiver/internal/logstmpl"
 	"github.com/elastic/metricsgenreceiver/metricsgenreceiver/internal/metadata"
 	"go.opentelemetry.io/collector/component"
@@ -33,6 +34,7 @@ type LogsGenReceiver struct {
 	scenarios         []LogScenario
 	progress          *LogsProgress
 	needleOccurrences map[string]*atomic.Uint64
+	stats             *logstats.LogStats
 }
 
 type LogScenario struct {
@@ -107,6 +109,7 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 		scenarios:         scenarios,
 		progress:          newLogsProgress(),
 		needleOccurrences: needleOccurrences,
+		stats:             logstats.NewLogStats(),
 	}, nil
 }
 
@@ -272,6 +275,8 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 			}
 		}
 
+		r.stats.Record(lr.SeverityText(), instanceResource, lr)
+
 		// Random trace ID (16 bytes) and span ID (8 bytes)
 		var traceID [16]byte
 		var spanID [8]byte
@@ -295,16 +300,18 @@ func (r *LogsGenReceiver) Shutdown(_ context.Context) error {
 	if r.cancel != nil {
 		r.cancel()
 	}
-	fields := []zap.Field{
+	// Build needle occurrences map for summary (only non-zero)
+	needleCounts := make(map[string]uint64)
+	for name, cnt := range r.needleOccurrences {
+		if n := cnt.Load(); n > 0 {
+			needleCounts[name] = n
+		}
+	}
+	r.settings.Logger.Info(r.stats.Summary(needleCounts))
+	r.settings.Logger.Info("finished generating logs",
 		zap.Uint64("logs", r.progress.logCount.Load()),
 		zap.String("duration", r.progress.duration().Round(time.Millisecond).String()),
 		zap.Float64("logs_per_second", r.progress.logsPerSecond()),
-	}
-	for name, cnt := range r.needleOccurrences {
-		if n := cnt.Load(); n > 0 {
-			fields = append(fields, zap.Uint64("needle_"+name, n))
-		}
-	}
-	r.settings.Logger.Info("finished generating logs", fields...)
+	)
 	return nil
 }

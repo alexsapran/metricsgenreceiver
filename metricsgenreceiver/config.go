@@ -2,6 +2,7 @@ package metricsgenreceiver
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/elastic/metricsgenreceiver/metricsgenreceiver/internal/distribution"
@@ -42,6 +43,15 @@ type LogScenarioCfg struct {
 	Concurrency     int            `mapstructure:"concurrency"`
 	TemplateVars    map[string]any `mapstructure:"template_vars"`
 	LogsPerInterval int            `mapstructure:"logs_per_interval"`
+	Needles         []NeedleCfg    `mapstructure:"needles"`
+}
+
+type NeedleCfg struct {
+	Name       string            `mapstructure:"name"`
+	Message    string            `mapstructure:"message"`
+	Rate       float64           `mapstructure:"rate"`
+	Severity   string            `mapstructure:"severity"`
+	Attributes map[string]string `mapstructure:"attributes"`
 }
 
 func (c ScenarioCfg) AggregationTemporalityOverride() pmetric.AggregationTemporality {
@@ -104,6 +114,24 @@ func (cfg *Config) Validate() error {
 		}
 		if scn.LogsPerInterval < 0 {
 			return fmt.Errorf("log_scenarios: logs_per_interval must be non-negative")
+		}
+		for _, needle := range scn.Needles {
+			if needle.Name == "" {
+				return fmt.Errorf("log_scenarios: needle name must not be empty")
+			}
+			if needle.Message == "" {
+				return fmt.Errorf("log_scenarios: needle %q message must not be empty", needle.Name)
+			}
+			if needle.Rate < 0.0 || needle.Rate > 1.0 {
+				return fmt.Errorf("log_scenarios: needle %q rate must be between 0.0 and 1.0", needle.Name)
+			}
+			sev := strings.ToUpper(strings.TrimSpace(needle.Severity))
+			if sev != "" {
+				valid := sev == "INFO" || sev == "WARN" || sev == "ERROR" || sev == "FATAL"
+				if !valid {
+					return fmt.Errorf("log_scenarios: needle %q severity must be INFO, WARN, ERROR, or FATAL", needle.Name)
+				}
+			}
 		}
 	}
 	return nil

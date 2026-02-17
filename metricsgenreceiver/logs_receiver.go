@@ -27,11 +27,12 @@ type LogsGenReceiver struct {
 	obsreport *receiverhelper.ObsReport
 	settings  receiver.Settings
 
-	baseRand  *rand.Rand
-	nextLogs  consumer.Logs
-	cancel    context.CancelFunc
-	scenarios []LogScenario
-	progress  *LogsProgress
+	baseRand          *rand.Rand
+	nextLogs          consumer.Logs
+	cancel            context.CancelFunc
+	scenarios         []LogScenario
+	progress          *LogsProgress
+	needleOccurrences map[string]*atomic.Uint64
 }
 
 type LogScenario struct {
@@ -78,6 +79,7 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 	baseRand := rand.New(rand.NewSource(cfg.Seed))
 
 	scenarios := make([]LogScenario, 0, len(cfg.LogScenarios))
+	needleNames := make(map[string]struct{})
 	for _, scn := range cfg.LogScenarios {
 		resources, err := logstmpl.GetLogResources(scn.Path, cfg.StartTime, scn.Scale, scn.TemplateVars, baseRand)
 		if err != nil {
@@ -87,15 +89,24 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 			config:    scn,
 			resources: resources,
 		})
+		for _, needle := range scn.Needles {
+			needleNames[needle.Name] = struct{}{}
+		}
+	}
+
+	needleOccurrences := make(map[string]*atomic.Uint64, len(needleNames))
+	for name := range needleNames {
+		needleOccurrences[name] = &atomic.Uint64{}
 	}
 
 	return &LogsGenReceiver{
-		cfg:       cfg,
-		settings:  set,
-		baseRand:  baseRand,
-		obsreport: obsreport,
-		scenarios: scenarios,
-		progress:  newLogsProgress(),
+		cfg:               cfg,
+		settings:          set,
+		baseRand:          baseRand,
+		obsreport:         obsreport,
+		scenarios:         scenarios,
+		progress:          newLogsProgress(),
+		needleOccurrences: needleOccurrences,
 	}, nil
 }
 
@@ -241,6 +252,26 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 			lr.Attributes().PutStr(k, v)
 		}
 
+		// Deterministic needle injection: check each needle (always call rng.Float64 for determinism)
+		var replaced bool
+		for _, needle := range scn.config.Needles {
+			roll := rng.Float64()
+			if !replaced && roll < needle.Rate {
+				lr.Body().SetStr(needle.Message)
+				needleSev := loggen.ParseSeverity(needle.Severity)
+				lr.SetSeverityNumber(needleSev)
+				lr.SetSeverityText(severityText(needleSev))
+				lr.Attributes().PutStr("needle.name", needle.Name)
+				for k, v := range needle.Attributes {
+					lr.Attributes().PutStr(k, v)
+				}
+				if cnt := r.needleOccurrences[needle.Name]; cnt != nil {
+					cnt.Add(1)
+				}
+				replaced = true
+			}
+		}
+
 		// Random trace ID (16 bytes) and span ID (8 bytes)
 		var traceID [16]byte
 		var spanID [8]byte
@@ -264,10 +295,16 @@ func (r *LogsGenReceiver) Shutdown(_ context.Context) error {
 	if r.cancel != nil {
 		r.cancel()
 	}
-	r.settings.Logger.Info("finished generating logs",
+	fields := []zap.Field{
 		zap.Uint64("logs", r.progress.logCount.Load()),
 		zap.String("duration", r.progress.duration().Round(time.Millisecond).String()),
 		zap.Float64("logs_per_second", r.progress.logsPerSecond()),
-	)
+	}
+	for name, cnt := range r.needleOccurrences {
+		if n := cnt.Load(); n > 0 {
+			fields = append(fields, zap.Uint64("needle_"+name, n))
+		}
+	}
+	r.settings.Logger.Info("finished generating logs", fields...)
 	return nil
 }

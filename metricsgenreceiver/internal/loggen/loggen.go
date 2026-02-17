@@ -4,10 +4,28 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/collector/pdata/plog"
 )
+
+// ParseSeverity converts a severity string to plog.SeverityNumber.
+// Empty or unknown values default to SeverityNumberError.
+func ParseSeverity(s string) plog.SeverityNumber {
+	switch strings.ToUpper(s) {
+	case "INFO":
+		return plog.SeverityNumberInfo
+	case "WARN":
+		return plog.SeverityNumberWarn
+	case "ERROR":
+		return plog.SeverityNumberError
+	case "FATAL":
+		return plog.SeverityNumberFatal
+	default:
+		return plog.SeverityNumberError
+	}
+}
 
 // AppProfile defines a log-generating application's behavior.
 type AppProfile struct {

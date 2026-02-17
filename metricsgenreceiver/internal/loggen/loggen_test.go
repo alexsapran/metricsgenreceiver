@@ -1,0 +1,103 @@
+package loggen
+
+import (
+	"math/rand"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/pdata/plog"
+)
+
+func TestAllProfiles(t *testing.T) {
+	profiles := []struct {
+		name    string
+		profile *AppProfile
+	}{
+		{"nginx", NginxProfile()},
+		{"mysql", MySQLProfile()},
+		{"redis", RedisProfile()},
+		{"goapp", GoAppProfile()},
+	}
+	rng := rand.New(rand.NewSource(42))
+	ts := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	for _, p := range profiles {
+		t.Run(p.name, func(t *testing.T) {
+			require.NotNil(t, p.profile)
+			body, sev, attrs := GenerateLogRecord(rng, *p.profile, ts)
+			assert.NotEmpty(t, body, "body must be non-empty")
+			assert.True(t, sev >= plog.SeverityNumberUnspecified && sev <= plog.SeverityNumberFatal,
+				"severity must be valid")
+			_ = attrs // may be nil
+		})
+	}
+}
+
+func TestGenerateLogRecord_Deterministic(t *testing.T) {
+	profile := *NginxProfile()
+	ts := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	rng1 := rand.New(rand.NewSource(42))
+	rng2 := rand.New(rand.NewSource(42))
+
+	// Generate 100 records from each RNG
+	for i := 0; i < 100; i++ {
+		body1, sev1, attrs1 := GenerateLogRecord(rng1, profile, ts)
+		body2, sev2, attrs2 := GenerateLogRecord(rng2, profile, ts)
+		assert.Equal(t, body1, body2, "record %d: body must match", i)
+		assert.Equal(t, sev1, sev2, "record %d: severity must match", i)
+		assert.Equal(t, attrs1, attrs2, "record %d: attrs must match", i)
+	}
+}
+
+func TestSeverityDistribution(t *testing.T) {
+	profile := *NginxProfile()
+	ts := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	rng := rand.New(rand.NewSource(999))
+
+	const n = 10000
+	counts := map[plog.SeverityNumber]int{
+		plog.SeverityNumberInfo: 0,
+		plog.SeverityNumberWarn: 0,
+		plog.SeverityNumberError: 0,
+		plog.SeverityNumberFatal: 0,
+	}
+
+	for i := 0; i < n; i++ {
+		_, sev, _ := GenerateLogRecord(rng, profile, ts)
+		if c, ok := counts[sev]; ok {
+			counts[sev] = c + 1
+		}
+	}
+
+	// SeverityWeights [70, 90, 98, 100] => INFO 70%, WARN 20%, ERROR 8%, FATAL 2%
+	// Allow ±5% variance
+	assert.InDelta(t, 0.70, float64(counts[plog.SeverityNumberInfo])/n, 0.05, "INFO ~70%%")
+	assert.InDelta(t, 0.20, float64(counts[plog.SeverityNumberWarn])/n, 0.05, "WARN ~20%%")
+	assert.InDelta(t, 0.08, float64(counts[plog.SeverityNumberError])/n, 0.05, "ERROR ~8%%")
+	assert.InDelta(t, 0.02, float64(counts[plog.SeverityNumberFatal])/n, 0.05, "FATAL ~2%%")
+}
+
+func TestParseSeverity(t *testing.T) {
+	assert.Equal(t, plog.SeverityNumberInfo, ParseSeverity("INFO"))
+	assert.Equal(t, plog.SeverityNumberInfo, ParseSeverity("info"))
+	assert.Equal(t, plog.SeverityNumberWarn, ParseSeverity("WARN"))
+	assert.Equal(t, plog.SeverityNumberError, ParseSeverity("ERROR"))
+	assert.Equal(t, plog.SeverityNumberFatal, ParseSeverity("FATAL"))
+	assert.Equal(t, plog.SeverityNumberError, ParseSeverity(""))      // default
+	assert.Equal(t, plog.SeverityNumberError, ParseSeverity("unknown")) // default
+}
+
+func TestGenericProfile(t *testing.T) {
+	profile := GenericProfile("my-service")
+	require.NotNil(t, profile)
+	assert.Equal(t, "generic", profile.Name)
+	rng := rand.New(rand.NewSource(1))
+	ts := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	body, sev, _ := GenerateLogRecord(rng, *profile, ts)
+	assert.NotEmpty(t, body)
+	assert.Contains(t, body, "my-service")
+	assert.Equal(t, plog.SeverityNumberInfo, sev)
+}

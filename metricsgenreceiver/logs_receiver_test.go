@@ -1,0 +1,207 @@
+package metricsgenreceiver
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/consumer/consumertest"
+	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/receiver/receivertest"
+)
+
+func testLogsConfig(seed int64, scale, logsPerInterval int, needles []NeedleCfg) *Config {
+	startTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	return &Config{
+		StartTime:   startTime,
+		EndTime:     startTime.Add(2 * time.Second),
+		Interval:    1 * time.Second,
+		Seed:        seed,
+		RealTime:    false,
+		LogScenarios: []LogScenarioCfg{
+			{
+				Path:            "builtin/simple",
+				Scale:           scale,
+				LogsPerInterval: logsPerInterval,
+				Needles:         needles,
+			},
+		},
+	}
+}
+
+func runLogsReceiver(t *testing.T, cfg *Config) []plog.Logs {
+	sink := new(consumertest.LogsSink)
+	factory := NewFactory()
+	rcv, err := factory.CreateLogs(context.Background(), receivertest.NewNopSettings(typ), cfg, sink)
+	require.NoError(t, err)
+	require.NoError(t, rcv.Start(context.Background(), nil))
+
+	// 2 intervals * scale * logsPerInterval
+	expectedLogs := 2 * cfg.LogScenarios[0].Scale * cfg.LogScenarios[0].LogsPerInterval
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Equal(c, int(expectedLogs), sink.LogRecordCount())
+	}, 2*time.Second, 10*time.Millisecond)
+	require.NoError(t, rcv.Shutdown(context.Background()))
+	return sink.AllLogs()
+}
+
+func marshalLogsToJSON(logs []plog.Logs) (string, error) {
+	combined := plog.NewLogs()
+	for _, batch := range logs {
+		for i := 0; i < batch.ResourceLogs().Len(); i++ {
+			batch.ResourceLogs().At(i).CopyTo(combined.ResourceLogs().AppendEmpty())
+		}
+	}
+	marshaler := &plog.JSONMarshaler{}
+	data, err := marshaler.MarshalLogs(combined)
+	if err != nil {
+		return "", err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return "", err
+	}
+	// Re-marshal for deterministic key ordering
+	out, err := json.Marshal(m)
+	return string(out), err
+}
+
+func TestLogsGenReceiver_Deterministic(t *testing.T) {
+	cfg := testLogsConfig(42, 2, 3, nil)
+	logs1 := runLogsReceiver(t, cfg)
+	logs2 := runLogsReceiver(t, cfg)
+
+	json1, err := marshalLogsToJSON(logs1)
+	require.NoError(t, err)
+	json2, err := marshalLogsToJSON(logs2)
+	require.NoError(t, err)
+	assert.Equal(t, json1, json2, "same seed and config must produce identical log output")
+}
+
+func TestLogsGenReceiver_NeedleDeterministic(t *testing.T) {
+	cfg := testLogsConfig(42, 1, 50, []NeedleCfg{
+		{Name: "test-needle", Message: "NEEDLE_INJECTED", Rate: 0.1, Severity: "ERROR"},
+	})
+	logs1 := runLogsReceiver(t, cfg)
+	logs2 := runLogsReceiver(t, cfg)
+
+	// Extract which log indices have the needle in each run
+	needleIndices := func(logs []plog.Logs) []int {
+		var out []int
+		idx := 0
+		for _, batch := range logs {
+			for i := 0; i < batch.ResourceLogs().Len(); i++ {
+				rl := batch.ResourceLogs().At(i)
+				for j := 0; j < rl.ScopeLogs().Len(); j++ {
+					sl := rl.ScopeLogs().At(j)
+					for k := 0; k < sl.LogRecords().Len(); k++ {
+						lr := sl.LogRecords().At(k)
+						if v, ok := lr.Attributes().Get("needle.name"); ok && v.Str() == "test-needle" {
+							out = append(out, idx)
+						}
+						idx++
+					}
+				}
+			}
+		}
+		return out
+	}
+	indices1 := needleIndices(logs1)
+	indices2 := needleIndices(logs2)
+	assert.Equal(t, indices1, indices2, "needle must appear at same positions with same seed")
+	assert.NotEmpty(t, indices1, "needle with rate 0.1 over 100 logs should appear at least once")
+}
+
+func TestLogsGenReceiver_Scale(t *testing.T) {
+	cfg := testLogsConfig(42, 5, 2, nil)
+	logs := runLogsReceiver(t, cfg)
+
+	podNames := make(map[string]struct{})
+	for _, batch := range logs {
+		for i := 0; i < batch.ResourceLogs().Len(); i++ {
+			rl := batch.ResourceLogs().At(i)
+			if v, ok := rl.Resource().Attributes().Get("k8s.pod.name"); ok {
+				podNames[v.Str()] = struct{}{}
+			}
+		}
+	}
+	assert.Len(t, podNames, 5, "scale=5 must produce 5 distinct k8s.pod.name values")
+}
+
+func TestLogsGenReceiver_DifferentSeeds(t *testing.T) {
+	cfg1 := testLogsConfig(42, 1, 20, nil)
+	cfg2 := testLogsConfig(99, 1, 20, nil)
+	logs1 := runLogsReceiver(t, cfg1)
+	logs2 := runLogsReceiver(t, cfg2)
+
+	json1, err := marshalLogsToJSON(logs1)
+	require.NoError(t, err)
+	json2, err := marshalLogsToJSON(logs2)
+	require.NoError(t, err)
+	assert.NotEqual(t, json1, json2, "different seeds must produce different output")
+}
+
+func TestLogsGenReceiver_ExternalTemplate(t *testing.T) {
+	dir := t.TempDir()
+	// External template uses path + "-resource-attributes" for GetLogResources
+	resourceAttrs := `resourceLogs:
+  - resource:
+      attributes:
+        - key: service.name
+          value:
+            stringValue: "external-{{.InstanceID}}"
+        - key: k8s.pod.name
+          value:
+            stringValue: "ext-pod-{{.InstanceID}}"
+    scopeLogs:
+      - scope:
+          name: "log-generator"
+        logRecords: []
+`
+	templatePath := filepath.Join(dir, "custom-resource-attributes.yaml")
+	require.NoError(t, os.WriteFile(templatePath, []byte(resourceAttrs), 0600))
+
+	startTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := &Config{
+		StartTime:   startTime,
+		EndTime:     startTime.Add(2 * time.Second),
+		Interval:    1 * time.Second,
+		Seed:        42,
+		RealTime:    false,
+		LogScenarios: []LogScenarioCfg{
+			{
+				Path:            filepath.Join(dir, "custom"),
+				Scale:           2,
+				LogsPerInterval: 2,
+			},
+		},
+	}
+	require.NoError(t, cfg.Validate())
+
+	logs := runLogsReceiver(t, cfg)
+	require.NotEmpty(t, logs)
+
+	// Verify we got logs from the external template (resource attributes from template)
+	serviceNames := make(map[string]struct{})
+	podNames := make(map[string]struct{})
+	for _, batch := range logs {
+		for i := 0; i < batch.ResourceLogs().Len(); i++ {
+			rl := batch.ResourceLogs().At(i)
+			if v, ok := rl.Resource().Attributes().Get("service.name"); ok {
+				serviceNames[v.Str()] = struct{}{}
+			}
+			if v, ok := rl.Resource().Attributes().Get("k8s.pod.name"); ok {
+				podNames[v.Str()] = struct{}{}
+			}
+		}
+	}
+	assert.Contains(t, serviceNames, "external-0", "external template must produce service.name from template")
+	assert.Contains(t, serviceNames, "external-1", "external template must produce service.name from template")
+	assert.Contains(t, podNames, "ext-pod-0", "external template must produce k8s.pod.name from template")
+	assert.Contains(t, podNames, "ext-pod-1", "external template must produce k8s.pod.name from template")
+}

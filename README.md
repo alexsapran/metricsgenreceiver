@@ -148,6 +148,51 @@ receivers:
   * `histogram_override`: allows to override the histogram type for all histogram metrics in the scenario.
     Supported values: `exponential`.
     When set to `exponential`, all histogram metrics will be replaced with exponential histograms using the configured `exponential_histograms_template_path`. The series and their attributes are preserved.
+* `log_scenarios`: a list of log generation scenarios. Each scenario defines resource attributes (via templates) and log message generation.
+  * `path`: the path of the log scenario. Use `builtin/<name>` for built-in templates, or a filesystem path for custom templates.
+  * `scale`: number of simulated resource instances (e.g. pods, containers).
+  * `logs_per_interval`: number of log records to generate per instance per interval.
+  * `concurrency` (default `0`): when non-zero, simulates instances concurrently.
+  * `template_vars`: variables available during template rendering.
+  * `needles`: optional list of needle configurations for injecting specific log messages at a given rate (useful for testing alerting).
+    * `name`: unique identifier for the needle.
+    * `message`: the log body to inject.
+    * `rate`: probability (0.0–1.0) of replacing a log with this needle.
+    * `severity`: INFO, WARN, ERROR, or FATAL.
+    * `attributes`: optional key-value attributes to add to the log record.
+  * Built-in log scenarios:
+    * `builtin/simple`: generic log messages with basic resource attributes.
+    * `builtin/k8s-nginx`: nginx access-style logs in a Kubernetes context.
+    * `builtin/k8s-mysql`: MySQL server logs in a Kubernetes context.
+    * `builtin/k8s-redis`: Redis server logs in a Kubernetes context.
+    * `builtin/k8s-goapp`: Go application logs (JSON format) in a Kubernetes context.
+
+### Adding new log types
+
+To add a new log type:
+
+1. **Create a resource-attributes template**: Create `<path>-resource-attributes.yaml` (or `.json`) in OTLP logs format. This defines the resource attributes (e.g. `service.name`, `k8s.pod.name`) for each simulated instance. Use the same placeholders as metric scenarios: `{{.InstanceID}}`, `{{.UUID}}`, `{{.RandomHex n}}`, `{{.ModFrom .InstanceID "a" "b"}}`, etc.
+2. **Add an AppProfile (optional)**: For custom log message patterns, add a new profile in `internal/loggen/profiles.go` and register it in `GetAppProfile()`. The profile defines severity weights and message templates with `ArgGenerator` placeholders. If no profile matches the path, the receiver falls back to `GenericProfile(serviceName)`.
+3. **Use built-in or external path**: For `builtin/<name>`, place the template in `internal/logstmpl/builtin/`. For external paths, use an absolute or relative path to a directory containing the template file.
+4. **Configure in `log_scenarios`**: Add an entry with `path`, `scale`, and `logs_per_interval`.
+
+Example external template (`/path/to/custom-resource-attributes.yaml`):
+
+```yaml
+resourceLogs:
+  - resource:
+      attributes:
+        - key: service.name
+          value:
+            stringValue: "myapp-{{.InstanceID}}"
+        - key: k8s.pod.name
+          value:
+            stringValue: "pod-{{.InstanceID}}"
+    scopeLogs:
+      - scope:
+          name: "log-generator"
+        logRecords: []
+```
 
 Example configuration:
 ```yaml

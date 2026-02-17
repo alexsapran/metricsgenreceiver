@@ -1,0 +1,92 @@
+receivers:
+  metricsgen:
+    start_now_minus: 1h
+    interval: 5s
+    interval_jitter_std_dev: 10ms
+    real_time: false
+    exit_after_end: true
+    seed: 42
+    log_scenarios:
+      # Nginx ingress controller - 20 pods, 50 log lines per pod per interval
+      - path: builtin/k8s-nginx
+        scale: 20
+        logs_per_interval: 50
+        needles:
+          - name: upstream_timeout
+            message: "upstream timed out (110: Connection timed out) while connecting to upstream"
+            rate: 0.002
+            severity: ERROR
+            attributes:
+              error.type: "timeout"
+              upstream.host: "backend-svc:8080"
+
+      # MySQL database - 10 pods, 20 log lines per pod per interval
+      - path: builtin/k8s-mysql
+        scale: 10
+        logs_per_interval: 20
+        needles:
+          - name: deadlock
+            message: "LATEST DETECTED DEADLOCK in transaction 0x7f2a1c003e80"
+            rate: 0.001
+            severity: FATAL
+            attributes:
+              db.statement: "UPDATE orders SET status='processing' WHERE id=42"
+          - name: disk_full
+            message: "No space left on device writing to /var/lib/mysql/ibdata1"
+            rate: 0.0005
+            severity: FATAL
+
+      # Redis cache - 15 pods, 30 log lines per pod per interval
+      - path: builtin/k8s-redis
+        scale: 15
+        logs_per_interval: 30
+
+      # Go microservices - 30 pods, 40 log lines per pod per interval
+      - path: builtin/k8s-goapp
+        scale: 30
+        logs_per_interval: 40
+        needles:
+          - name: panic_recovery
+            message: '{"level":"fatal","ts":"2025-01-01T00:00:00Z","caller":"main.go:42","msg":"panic recovered","error":"runtime error: index out of range [5] with length 3","stacktrace":"goroutine 1 [running]:\nmain.handleRequest()"}'
+            rate: 0.0001
+            severity: FATAL
+
+#      # Simple log template (for testing)
+#      - path: builtin/simple
+#        scale: 5
+#        logs_per_interval: 10
+
+processors:
+  batch:
+
+extensions:
+  pprof:
+
+exporters:
+  debug:
+    verbosity: detailed
+  file:
+    path: ./file-exporter/logs-generated.json
+  nop:
+  elasticsearch:
+    endpoints: [ https://localhost:9200 ]
+    user: elastic
+    password: changeme
+    num_workers: 2
+    sending_queue:
+      enabled: false
+    mapping:
+      mode: otel
+    tls:
+      insecure_skip_verify: true
+
+service:
+#  extensions: [pprof]
+  pipelines:
+    logs:
+      receivers: [metricsgen]
+#      processors: [batch]
+      exporters: [nop]
+#      exporters: [elasticsearch] # do not use with batch processor. ES exporter is doing batching internally.
+#      exporters: [debug]
+#      exporters: [file]

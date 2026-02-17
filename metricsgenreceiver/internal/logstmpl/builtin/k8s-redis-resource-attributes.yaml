@@ -31,6 +31,30 @@ resourceLogs:
         - key: service.name
           value:
             stringValue: "redis"
+        - key: k8s.pod.label.app.kubernetes.io/name
+          value:
+            stringValue: "redis"
+        - key: k8s.pod.label.app.kubernetes.io/instance
+          value:
+            stringValue: "redis"
+        - key: k8s.pod.label.app.kubernetes.io/version
+          value:
+            stringValue: "7.2.4"
+        - key: k8s.pod.label.app.kubernetes.io/component
+          value:
+            stringValue: "master"
+        - key: k8s.pod.label.app.kubernetes.io/managed-by
+          value:
+            stringValue: "Helm"
+        - key: k8s.pod.label.helm.sh/chart
+          value:
+            stringValue: "redis-20.6.2"
+        - key: k8s.pod.label.app.kubernetes.io/part-of
+          value:
+            stringValue: "redis"
+        - key: k8s.statefulset.name
+          value:
+            stringValue: "redis-master"
     scopeLogs:
       - scope:
           name: "log-generator"

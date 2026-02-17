@@ -31,6 +31,33 @@ resourceLogs:
         - key: service.name
           value:
             stringValue: "nginx"
+        - key: k8s.pod.label.app.kubernetes.io/name
+          value:
+            stringValue: "ingress-nginx"
+        - key: k8s.pod.label.app.kubernetes.io/instance
+          value:
+            stringValue: "ingress-nginx"
+        - key: k8s.pod.label.app.kubernetes.io/version
+          value:
+            stringValue: "1.25.3"
+        - key: k8s.pod.label.app.kubernetes.io/component
+          value:
+            stringValue: "controller"
+        - key: k8s.pod.label.app.kubernetes.io/managed-by
+          value:
+            stringValue: "Helm"
+        - key: k8s.pod.label.helm.sh/chart
+          value:
+            stringValue: "ingress-nginx-4.11.3"
+        - key: k8s.pod.label.app.kubernetes.io/part-of
+          value:
+            stringValue: "ingress-nginx"
+        - key: k8s.replicaset.name
+          value:
+            stringValue: "nginx-controller-{{.RandomHex 10}}"
+        - key: k8s.deployment.name
+          value:
+            stringValue: "ingress-nginx-controller"
     scopeLogs:
       - scope:
           name: "log-generator"

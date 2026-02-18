@@ -7,10 +7,13 @@ receivers:
     exit_after_end: true
     seed: 42
     log_scenarios:
-      # Nginx ingress controller - 20 pods, 50 log lines per pod per interval
+      # Nginx ingress controller
       - path: builtin/k8s-nginx
-        scale: 20
-        logs_per_interval: 50
+        scale: 30                     # total pod instances = nodes * pods_per_node (3 * 10 = 30)
+        logs_per_interval: 50         # log records emitted per pod per interval
+        concurrency: 10               # parallel goroutines for generation throughput
+        template_vars:
+          nodes: 3                    # number of k8s nodes (distinct k8s.node.name values)
         needles:
           - name: upstream_timeout
             message: "upstream timed out (110: Connection timed out) while connecting to upstream"
@@ -20,10 +23,12 @@ receivers:
               error.type: "timeout"
               upstream.host: "backend-svc:8080"
 
-      # MySQL database - 10 pods, 20 log lines per pod per interval
+      # MySQL database
       - path: builtin/k8s-mysql
-        scale: 10
+        scale: 15                     # 3 nodes * 5 pods per node
         logs_per_interval: 20
+        template_vars:
+          nodes: 3
         needles:
           - name: deadlock
             message: "LATEST DETECTED DEADLOCK in transaction 0x7f2a1c003e80"
@@ -36,15 +41,20 @@ receivers:
             rate: 0.0005
             severity: FATAL
 
-      # Redis cache - 15 pods, 30 log lines per pod per interval
+      # Redis cache
       - path: builtin/k8s-redis
-        scale: 15
+        scale: 15                     # 3 nodes * 5 pods per node
         logs_per_interval: 30
+        template_vars:
+          nodes: 3
 
-      # Go microservices - 30 pods, 40 log lines per pod per interval
+      # Go microservices
       - path: builtin/k8s-goapp
-        scale: 30
+        scale: 30                     # 3 nodes * 10 pods per node
         logs_per_interval: 40
+        concurrency: 10
+        template_vars:
+          nodes: 3
         needles:
           - name: panic_recovery
             message: '{"level":"fatal","ts":"2025-01-01T00:00:00Z","caller":"main.go:42","msg":"panic recovered","error":"runtime error: index out of range [5] with length 3","stacktrace":"goroutine 1 [running]:\nmain.handleRequest()"}'

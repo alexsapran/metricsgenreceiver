@@ -150,10 +150,13 @@ receivers:
     When set to `exponential`, all histogram metrics will be replaced with exponential histograms using the configured `exponential_histograms_template_path`. The series and their attributes are preserved.
 * `log_scenarios`: a list of log generation scenarios. Each scenario defines resource attributes (via templates) and log message generation.
   * `path`: the path of the log scenario. Use `builtin/<name>` for built-in templates, or a filesystem path for custom templates.
-  * `scale`: number of simulated resource instances (e.g. pods, containers).
+  * `scale`: total number of simulated resource instances (e.g. pods, containers).
   * `logs_per_interval`: number of log records to generate per instance per interval.
   * `concurrency` (default `0`): when non-zero, simulates instances concurrently.
-  * `template_vars`: variables available during template rendering.
+  * `template_vars`: variables available during template rendering. For k8s scenarios, use `template_vars.nodes` to control topology:
+    * `scale` is the total number of pod instances generated.
+    * `template_vars.nodes` controls how many distinct `k8s.node.name` values pods are distributed across.
+    * The formula `scale = nodes * pods_per_node` gives exact, known cardinalities for analytical queries (e.g. `count by k8s.node.name` returns exactly `nodes` distinct values).
   * `needles`: optional list of needle configurations for injecting specific log messages at a given rate (useful for testing alerting).
     * `name`: unique identifier for the needle.
     * `message`: the log body to inject.

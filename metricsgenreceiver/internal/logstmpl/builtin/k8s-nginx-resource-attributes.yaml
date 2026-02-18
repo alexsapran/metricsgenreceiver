@@ -9,7 +9,7 @@ resourceLogs:
             stringValue: "{{.ModFrom .InstanceID `ingress-nginx` `default`}}"
         - key: k8s.node.name
           value:
-            stringValue: "node-{{.Mod .InstanceID 3}}"
+            stringValue: "node-{{$nodes := 3}}{{if and .Vars .Vars.nodes}}{{$nodes = .Vars.nodes}}{{end}}{{.Mod .InstanceID $nodes}}"
         - key: k8s.pod.name
           value:
             stringValue: "nginx-{{.RandomHex 10}}"

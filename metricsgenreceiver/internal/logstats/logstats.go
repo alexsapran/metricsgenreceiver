@@ -4,14 +4,12 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"sync"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
 type LogStats struct {
-	mu                sync.Mutex
 	TotalLogs         uint64
 	BySeverity        map[string]uint64
 	ByApp             map[string]uint64
@@ -31,9 +29,7 @@ func NewLogStats() *LogStats {
 }
 
 func (s *LogStats) Record(severityText string, resource pcommon.Resource, logRecord plog.LogRecord) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	// No lock: each shard is single-writer (one goroutine per shard).
 	s.TotalLogs++
 
 	// BySeverity
@@ -94,9 +90,7 @@ func valueToString(v pcommon.Value) string {
 }
 
 func (s *LogStats) Summary(needleOccurrences map[string]uint64) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	// Summary is called once on merged stats after all goroutines are done.
 	total := s.TotalLogs
 	if total == 0 {
 		return "Log Generation Summary:\n  Total logs: 0"
@@ -198,4 +192,53 @@ func formatNumber(n uint64) string {
 		result = append(result, byte(c))
 	}
 	return string(result)
+}
+
+// ShardedLogStats holds per-goroutine shards to avoid mutex contention.
+// Each shard is written by only one goroutine; Merge() combines them for Summary().
+type ShardedLogStats struct {
+	shards []*LogStats
+}
+
+func NewShardedLogStats(n int) *ShardedLogStats {
+	if n < 1 {
+		n = 1
+	}
+	shards := make([]*LogStats, n)
+	for i := range shards {
+		shards[i] = NewLogStats()
+	}
+	return &ShardedLogStats{shards: shards}
+}
+
+func (s *ShardedLogStats) Shard(i int) *LogStats {
+	return s.shards[i%len(s.shards)]
+}
+
+func (s *ShardedLogStats) Merge() *LogStats {
+	merged := NewLogStats()
+	for _, shard := range s.shards {
+		merged.TotalLogs += shard.TotalLogs
+		for k, v := range shard.BySeverity {
+			merged.BySeverity[k] += v
+		}
+		for k, v := range shard.ByApp {
+			merged.ByApp[k] += v
+		}
+		for k, v := range shard.ByNode {
+			merged.ByNode[k] += v
+		}
+		for k, v := range shard.ByNamespace {
+			merged.ByNamespace[k] += v
+		}
+		for k, vals := range shard.FieldCardinality {
+			if merged.FieldCardinality[k] == nil {
+				merged.FieldCardinality[k] = make(map[string]struct{})
+			}
+			for v := range vals {
+				merged.FieldCardinality[k][v] = struct{}{}
+			}
+		}
+	}
+	return merged
 }

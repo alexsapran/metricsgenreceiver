@@ -34,7 +34,7 @@ type LogsGenReceiver struct {
 	scenarios         []LogScenario
 	progress          *LogsProgress
 	needleOccurrences map[string]*atomic.Uint64
-	stats             *logstats.LogStats
+	stats             *logstats.ShardedLogStats
 }
 
 type LogScenario struct {
@@ -101,6 +101,20 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 		needleOccurrences[name] = &atomic.Uint64{}
 	}
 
+	// Shard 0: sequential scenarios (Concurrency==0). Shards 1+:
+	// unique shard per concurrent worker across all scenarios (they run in parallel).
+	totalConcurrentShards := 0
+	for _, scn := range cfg.LogScenarios {
+		if scn.Concurrency > 0 {
+			totalConcurrentShards += scn.Concurrency
+		}
+	}
+	numShards := 1 + totalConcurrentShards
+	if numShards < 1 {
+		numShards = 1
+	}
+	stats := logstats.NewShardedLogStats(numShards)
+
 	return &LogsGenReceiver{
 		cfg:               cfg,
 		settings:          set,
@@ -109,7 +123,7 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 		scenarios:         scenarios,
 		progress:          newLogsProgress(),
 		needleOccurrences: needleOccurrences,
-		stats:             logstats.NewLogStats(),
+		stats:             stats,
 	}, nil
 }
 
@@ -186,38 +200,47 @@ func severityText(sev plog.SeverityNumber) string {
 func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time) uint64 {
 	var totalLogs uint64
 	wg := sync.WaitGroup{}
+	concurrentShardBase := 1
 
 	for _, scn := range r.scenarios {
 		if scn.config.LogsPerInterval == 0 {
 			continue
 		}
 		if scn.config.Concurrency == 0 {
+			shard := r.stats.Shard(0)
 			for i := 0; i < scn.config.Scale; i++ {
 				resource := scn.resources[i]
-				totalLogs += uint64(r.produceLogsForInstance(ctx, r.baseRand, currentTime, scn, resource))
+				totalLogs += uint64(r.produceLogsForInstance(ctx, r.baseRand, currentTime, scn, resource, shard))
 			}
 			continue
 		}
-		for i := 0; i < scn.config.Concurrency; i++ {
+		scenario := scn
+		scale := scenario.config.Scale
+		concurrency := scenario.config.Concurrency
+		for i := 0; i < concurrency; i++ {
 			rng := r.getNewRand()
+			shardIdx := concurrentShardBase + i
+			shard := r.stats.Shard(shardIdx)
+			workerIdx := i
 			wg.Add(1)
-			go func(rng *rand.Rand) {
+			go func(rng *rand.Rand, sh *logstats.LogStats, wi int) {
 				defer wg.Done()
 				var count uint64
-				for j := 0; j < scn.config.Scale/scn.config.Concurrency; j++ {
-					idx := j + i*scn.config.Scale/scn.config.Concurrency
-					resource := scn.resources[idx]
-					count += uint64(r.produceLogsForInstance(ctx, rng, currentTime, scn, resource))
+				for j := 0; j < scale/concurrency; j++ {
+					idx := j + wi*scale/concurrency
+					resource := scenario.resources[idx]
+					count += uint64(r.produceLogsForInstance(ctx, rng, currentTime, scenario, resource, sh))
 				}
 				atomic.AddUint64(&totalLogs, count)
-			}(rng)
+			}(rng, shard, workerIdx)
 		}
+		concurrentShardBase += concurrency
 	}
 	wg.Wait()
 	return totalLogs
 }
 
-func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.Rand, currentTime time.Time, scn LogScenario, instanceResource pcommon.Resource) int {
+func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.Rand, currentTime time.Time, scn LogScenario, instanceResource pcommon.Resource, statsShard *logstats.LogStats) int {
 	logsPerInterval := scn.config.LogsPerInterval
 	if logsPerInterval <= 0 {
 		return 0
@@ -275,7 +298,7 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 			}
 		}
 
-		r.stats.Record(lr.SeverityText(), instanceResource, lr)
+		statsShard.Record(lr.SeverityText(), instanceResource, lr)
 
 		// Random trace ID (16 bytes) and span ID (8 bytes)
 		var traceID [16]byte
@@ -307,7 +330,8 @@ func (r *LogsGenReceiver) Shutdown(_ context.Context) error {
 			needleCounts[name] = n
 		}
 	}
-	r.settings.Logger.Info(r.stats.Summary(needleCounts))
+	merged := r.stats.Merge()
+	r.settings.Logger.Info(merged.Summary(needleCounts))
 	r.settings.Logger.Info("finished generating logs",
 		zap.Uint64("logs", r.progress.logCount.Load()),
 		zap.String("duration", r.progress.duration().Round(time.Millisecond).String()),

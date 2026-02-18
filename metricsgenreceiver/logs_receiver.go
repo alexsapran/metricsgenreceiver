@@ -40,6 +40,7 @@ type LogsGenReceiver struct {
 type LogScenario struct {
 	config    LogScenarioCfg
 	resources []pcommon.Resource
+	prepared  *loggen.PreparedProfile
 }
 
 type LogsProgress struct {
@@ -87,9 +88,21 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 		if err != nil {
 			return nil, err
 		}
+		profile := loggen.GetAppProfile(scn.Path)
+		if profile == nil {
+			serviceName := "unknown"
+			if len(resources) > 0 {
+				if v, ok := resources[0].Attributes().Get("service.name"); ok {
+					serviceName = v.Str()
+				}
+			}
+			profile = loggen.GenericProfile(serviceName)
+		}
+		prepared := loggen.PrepareProfile(profile)
 		scenarios = append(scenarios, LogScenario{
 			config:    scn,
 			resources: resources,
+			prepared:  prepared,
 		})
 		for _, needle := range scn.Needles {
 			needleNames[needle.Name] = struct{}{}
@@ -254,27 +267,18 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 	sl := rl.ScopeLogs().AppendEmpty()
 	sl.Scope().SetName("log-generator")
 
-	serviceName := "unknown"
-	if v, ok := instanceResource.Attributes().Get("service.name"); ok {
-		serviceName = v.Str()
-	}
-
-	profile := loggen.GetAppProfile(scn.config.Path)
-	if profile == nil {
-		profile = loggen.GenericProfile(serviceName)
-	}
-
+	reusableAttrs := make(map[string]string, 8)
 	for i := 0; i < logsPerInterval; i++ {
 		lr := sl.LogRecords().AppendEmpty()
 		instanceTime := addLogJitter(currentTime, r.cfg.IntervalJitterStdDev, r.cfg.Interval, rng)
 		lr.SetTimestamp(pcommon.NewTimestampFromTime(instanceTime))
 
-		body, sev, attrs := loggen.GenerateLogRecord(rng, *profile, instanceTime)
+		body, sev := loggen.GenerateFromPreparedInto(rng, scn.prepared, instanceTime, reusableAttrs)
 		lr.SetSeverityNumber(sev)
 		lr.SetSeverityText(severityText(sev))
 		lr.Body().SetStr(body)
 
-		for k, v := range attrs {
+		for k, v := range reusableAttrs {
 			lr.Attributes().PutStr(k, v)
 		}
 

@@ -136,6 +136,122 @@ func filterMessagesBySeverity(msgs []MessageTemplate, sev plog.SeverityNumber) [
 	return out
 }
 
+// PreparedProfile holds a profile with pre-bucketed messages by severity for fast lookup.
+type PreparedProfile struct {
+	profile    AppProfile
+	bySeverity map[plog.SeverityNumber][]MessageTemplate
+}
+
+// PrepareProfile pre-computes severity-bucketed message slices to avoid per-record allocations.
+func PrepareProfile(p *AppProfile) *PreparedProfile {
+	bySev := make(map[plog.SeverityNumber][]MessageTemplate)
+	for _, m := range p.Messages {
+		bySev[m.Severity] = append(bySev[m.Severity], m)
+	}
+	return &PreparedProfile{
+		profile:    *p,
+		bySeverity: bySev,
+	}
+}
+
+// GenerateFromPrepared generates a log record using pre-bucketed messages.
+func GenerateFromPrepared(rng *rand.Rand, pp *PreparedProfile, timestamp time.Time) (body string, severity plog.SeverityNumber, attrs map[string]string) {
+	ctx := &GenContext{Timestamp: timestamp}
+	sev := pickSeverityFromWeights(rng, pp.profile.SeverityWeights)
+	msgs := pp.bySeverity[sev]
+	if len(msgs) == 0 {
+		msgs = pp.bySeverity[plog.SeverityNumberInfo]
+		if len(msgs) == 0 && len(pp.profile.Messages) > 0 {
+			msgs = pp.profile.Messages[:1]
+			sev = pp.profile.Messages[0].Severity
+		}
+	}
+	if len(msgs) == 0 {
+		return "no messages configured", plog.SeverityNumberInfo, nil
+	}
+	tmpl := msgs[rng.Intn(len(msgs))]
+	args := make([]any, len(tmpl.Args))
+	for i, gen := range tmpl.Args {
+		args[i] = gen(rng, ctx)
+	}
+	body = fmt.Sprintf(tmpl.Format, args...)
+	attrs = nil
+	if len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 {
+		attrs = make(map[string]string)
+		for k, idx := range tmpl.AttrFromArg {
+			if idx >= 0 && idx < len(args) {
+				attrs[k] = fmt.Sprintf("%v", args[idx])
+			}
+		}
+		for k, gen := range tmpl.Attrs {
+			if _, ok := attrs[k]; ok {
+				continue
+			}
+			switch v := gen(rng, ctx).(type) {
+			case string:
+				attrs[k] = v
+			case int:
+				attrs[k] = fmt.Sprintf("%d", v)
+			case int64:
+				attrs[k] = fmt.Sprintf("%d", v)
+			default:
+				attrs[k] = fmt.Sprintf("%v", v)
+			}
+		}
+	}
+	return body, tmpl.Severity, attrs
+}
+
+// GenerateFromPreparedInto generates a log record into a reusable attrs map to avoid allocations.
+// attrsOut must be non-nil; it is cleared and reused.
+func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp time.Time, attrsOut map[string]string) (body string, severity plog.SeverityNumber) {
+	for k := range attrsOut {
+		delete(attrsOut, k)
+	}
+	ctx := &GenContext{Timestamp: timestamp}
+	sev := pickSeverityFromWeights(rng, pp.profile.SeverityWeights)
+	msgs := pp.bySeverity[sev]
+	if len(msgs) == 0 {
+		msgs = pp.bySeverity[plog.SeverityNumberInfo]
+		if len(msgs) == 0 && len(pp.profile.Messages) > 0 {
+			msgs = pp.profile.Messages[:1]
+			sev = pp.profile.Messages[0].Severity
+		}
+	}
+	if len(msgs) == 0 {
+		return "no messages configured", plog.SeverityNumberInfo
+	}
+	tmpl := msgs[rng.Intn(len(msgs))]
+	args := make([]any, len(tmpl.Args))
+	for i, gen := range tmpl.Args {
+		args[i] = gen(rng, ctx)
+	}
+	body = fmt.Sprintf(tmpl.Format, args...)
+	if len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 {
+		for k, idx := range tmpl.AttrFromArg {
+			if idx >= 0 && idx < len(args) {
+				attrsOut[k] = fmt.Sprintf("%v", args[idx])
+			}
+		}
+		for k, gen := range tmpl.Attrs {
+			if _, ok := attrsOut[k]; ok {
+				continue
+			}
+			switch v := gen(rng, ctx).(type) {
+			case string:
+				attrsOut[k] = v
+			case int:
+				attrsOut[k] = fmt.Sprintf("%d", v)
+			case int64:
+				attrsOut[k] = fmt.Sprintf("%d", v)
+			default:
+				attrsOut[k] = fmt.Sprintf("%v", v)
+			}
+		}
+	}
+	return body, tmpl.Severity
+}
+
 // --- ArgGenerator helpers ---
 
 var RandomIP ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {

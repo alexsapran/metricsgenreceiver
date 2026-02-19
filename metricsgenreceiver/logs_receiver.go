@@ -41,6 +41,38 @@ type LogScenario struct {
 	config    LogScenarioCfg
 	resources []pcommon.Resource
 	prepared  *loggen.PreparedProfile
+	volume    volumeState
+}
+
+type volumeState struct {
+	multiplier         float64
+	remainingIntervals int
+}
+
+// resolveVolumeMultiplier returns the effective multiplier for this interval and
+// updates the state for the next call. Must be called on the main goroutine
+// before fan-out so all workers for a scenario see the same volume.
+func resolveVolumeMultiplier(vs *volumeState, rng *rand.Rand, vp *VolumeProfileCfg) float64 {
+	if vp == nil {
+		return 1.0
+	}
+	if vs.remainingIntervals > 0 {
+		vs.remainingIntervals--
+		return vs.multiplier
+	}
+	roll := rng.Float64()
+	switch {
+	case roll < vp.BurstProbability:
+		vs.multiplier = vp.BurstMultiplierMin + rng.Float64()*(vp.BurstMultiplierMax-vp.BurstMultiplierMin)
+		vs.remainingIntervals = vp.BurstDurationMin + rng.Intn(vp.BurstDurationMax-vp.BurstDurationMin+1) - 1
+		return vs.multiplier
+	case roll < vp.BurstProbability+vp.QuietProbability:
+		vs.multiplier = vp.QuietMultiplier
+		vs.remainingIntervals = vp.QuietDurationMin + rng.Intn(vp.QuietDurationMax-vp.QuietDurationMin+1) - 1
+		return vs.multiplier
+	default:
+		return 1.0
+	}
 }
 
 type LogsProgress struct {
@@ -215,19 +247,27 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 	wg := sync.WaitGroup{}
 	concurrentShardBase := 1
 
-	for _, scn := range r.scenarios {
+	for idx := range r.scenarios {
+		scn := &r.scenarios[idx]
 		if scn.config.LogsPerInterval == 0 {
 			continue
 		}
+
+		mult := resolveVolumeMultiplier(&scn.volume, r.baseRand, scn.config.VolumeProfile)
+		effectiveLogs := int(float64(scn.config.LogsPerInterval) * mult)
+		if effectiveLogs < 1 && scn.config.LogsPerInterval > 0 {
+			effectiveLogs = 1
+		}
+
 		if scn.config.Concurrency == 0 {
 			shard := r.stats.Shard(0)
 			for i := 0; i < scn.config.Scale; i++ {
 				resource := scn.resources[i]
-				totalLogs += uint64(r.produceLogsForInstance(ctx, r.baseRand, currentTime, scn, resource, shard))
+				totalLogs += uint64(r.produceLogsForInstance(ctx, r.baseRand, currentTime, *scn, resource, shard, effectiveLogs))
 			}
 			continue
 		}
-		scenario := scn
+		scenario := *scn
 		scale := scenario.config.Scale
 		concurrency := scenario.config.Concurrency
 		for i := 0; i < concurrency; i++ {
@@ -236,16 +276,16 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 			shard := r.stats.Shard(shardIdx)
 			workerIdx := i
 			wg.Add(1)
-			go func(rng *rand.Rand, sh *logstats.LogStats, wi int) {
+			go func(rng *rand.Rand, sh *logstats.LogStats, wi int, logs int) {
 				defer wg.Done()
 				var count uint64
 				for j := 0; j < scale/concurrency; j++ {
 					idx := j + wi*scale/concurrency
 					resource := scenario.resources[idx]
-					count += uint64(r.produceLogsForInstance(ctx, rng, currentTime, scenario, resource, sh))
+					count += uint64(r.produceLogsForInstance(ctx, rng, currentTime, scenario, resource, sh, logs))
 				}
 				atomic.AddUint64(&totalLogs, count)
-			}(rng, shard, workerIdx)
+			}(rng, shard, workerIdx, effectiveLogs)
 		}
 		concurrentShardBase += concurrency
 	}
@@ -253,8 +293,7 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 	return totalLogs
 }
 
-func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.Rand, currentTime time.Time, scn LogScenario, instanceResource pcommon.Resource, statsShard *logstats.LogStats) int {
-	logsPerInterval := scn.config.LogsPerInterval
+func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.Rand, currentTime time.Time, scn LogScenario, instanceResource pcommon.Resource, statsShard *logstats.LogStats, logsPerInterval int) int {
 	if logsPerInterval <= 0 {
 		return 0
 	}

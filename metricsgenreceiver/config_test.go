@@ -92,3 +92,82 @@ func TestScenarioCfg_ForceExponentialHistograms(t *testing.T) {
 		assert.False(t, scenario.ForceExponentialHistograms())
 	})
 }
+
+func validBaseConfig() *Config {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	return &Config{
+		StartTime: start,
+		EndTime:   start.Add(10 * time.Second),
+		Interval:  1 * time.Second,
+	}
+}
+
+func TestValidateVolumeProfile(t *testing.T) {
+	t.Run("nil profile is valid", func(t *testing.T) {
+		assert.NoError(t, validateVolumeProfile(nil))
+	})
+
+	t.Run("valid profile", func(t *testing.T) {
+		assert.NoError(t, validateVolumeProfile(&VolumeProfileCfg{
+			BurstProbability:   0.1,
+			BurstMultiplierMin: 2.0,
+			BurstMultiplierMax: 5.0,
+			BurstDurationMin:   1,
+			BurstDurationMax:   3,
+			QuietProbability:   0.1,
+			QuietMultiplier:    0.2,
+			QuietDurationMin:   1,
+			QuietDurationMax:   3,
+		}))
+	})
+
+	t.Run("burst_probability out of range", func(t *testing.T) {
+		assert.ErrorContains(t, validateVolumeProfile(&VolumeProfileCfg{
+			BurstProbability: 1.5,
+			BurstDurationMin: 1, BurstDurationMax: 1,
+		}), "burst_probability")
+	})
+
+	t.Run("quiet_probability out of range", func(t *testing.T) {
+		assert.ErrorContains(t, validateVolumeProfile(&VolumeProfileCfg{
+			QuietProbability: -0.1,
+			QuietDurationMin: 1, QuietDurationMax: 1,
+		}), "quiet_probability")
+	})
+
+	t.Run("combined probability exceeds 1", func(t *testing.T) {
+		assert.ErrorContains(t, validateVolumeProfile(&VolumeProfileCfg{
+			BurstProbability: 0.6, BurstDurationMin: 1, BurstDurationMax: 1,
+			QuietProbability: 0.6, QuietDurationMin: 1, QuietDurationMax: 1,
+		}), "burst_probability + quiet_probability")
+	})
+
+	t.Run("burst_multiplier_max less than min", func(t *testing.T) {
+		assert.ErrorContains(t, validateVolumeProfile(&VolumeProfileCfg{
+			BurstProbability:   0.1,
+			BurstMultiplierMin: 5.0,
+			BurstMultiplierMax: 2.0,
+			BurstDurationMin:   1,
+			BurstDurationMax:   1,
+		}), "burst_multiplier_max")
+	})
+
+	t.Run("burst_duration_min zero with positive probability", func(t *testing.T) {
+		assert.ErrorContains(t, validateVolumeProfile(&VolumeProfileCfg{
+			BurstProbability:   0.1,
+			BurstMultiplierMin: 2.0,
+			BurstMultiplierMax: 3.0,
+			BurstDurationMin:   0,
+			BurstDurationMax:   3,
+		}), "burst_duration_min")
+	})
+
+	t.Run("quiet_duration_max less than min", func(t *testing.T) {
+		assert.ErrorContains(t, validateVolumeProfile(&VolumeProfileCfg{
+			QuietProbability: 0.1,
+			QuietMultiplier:  0.2,
+			QuietDurationMin: 5,
+			QuietDurationMax: 2,
+		}), "quiet_duration_max")
+	})
+}

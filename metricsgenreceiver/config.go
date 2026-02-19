@@ -38,12 +38,25 @@ type ScenarioCfg struct {
 }
 
 type LogScenarioCfg struct {
-	Path            string         `mapstructure:"path"`
-	Scale           int            `mapstructure:"scale"`
-	Concurrency     int            `mapstructure:"concurrency"`
-	TemplateVars    map[string]any `mapstructure:"template_vars"`
-	LogsPerInterval int            `mapstructure:"logs_per_interval"`
-	Needles         []NeedleCfg    `mapstructure:"needles"`
+	Path            string            `mapstructure:"path"`
+	Scale           int               `mapstructure:"scale"`
+	Concurrency     int               `mapstructure:"concurrency"`
+	TemplateVars    map[string]any    `mapstructure:"template_vars"`
+	LogsPerInterval int               `mapstructure:"logs_per_interval"`
+	Needles         []NeedleCfg       `mapstructure:"needles"`
+	VolumeProfile   *VolumeProfileCfg `mapstructure:"volume_profile"`
+}
+
+type VolumeProfileCfg struct {
+	BurstProbability  float64 `mapstructure:"burst_probability"`
+	BurstMultiplierMin float64 `mapstructure:"burst_multiplier_min"`
+	BurstMultiplierMax float64 `mapstructure:"burst_multiplier_max"`
+	BurstDurationMin  int     `mapstructure:"burst_duration_min"`
+	BurstDurationMax  int     `mapstructure:"burst_duration_max"`
+	QuietProbability  float64 `mapstructure:"quiet_probability"`
+	QuietMultiplier   float64 `mapstructure:"quiet_multiplier"`
+	QuietDurationMin  int     `mapstructure:"quiet_duration_min"`
+	QuietDurationMax  int     `mapstructure:"quiet_duration_max"`
 }
 
 type NeedleCfg struct {
@@ -133,6 +146,46 @@ func (cfg *Config) Validate() error {
 				}
 			}
 		}
+		if err := validateVolumeProfile(scn.VolumeProfile); err != nil {
+			return fmt.Errorf("log_scenarios: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateVolumeProfile(vp *VolumeProfileCfg) error {
+	if vp == nil {
+		return nil
+	}
+	if vp.BurstProbability < 0 || vp.BurstProbability > 1 {
+		return fmt.Errorf("volume_profile: burst_probability must be between 0.0 and 1.0")
+	}
+	if vp.QuietProbability < 0 || vp.QuietProbability > 1 {
+		return fmt.Errorf("volume_profile: quiet_probability must be between 0.0 and 1.0")
+	}
+	if vp.BurstProbability+vp.QuietProbability > 1 {
+		return fmt.Errorf("volume_profile: burst_probability + quiet_probability must not exceed 1.0")
+	}
+	if vp.BurstMultiplierMin < 0 {
+		return fmt.Errorf("volume_profile: burst_multiplier_min must be non-negative")
+	}
+	if vp.BurstMultiplierMax < vp.BurstMultiplierMin {
+		return fmt.Errorf("volume_profile: burst_multiplier_max must be >= burst_multiplier_min")
+	}
+	if vp.BurstDurationMin < 1 && vp.BurstProbability > 0 {
+		return fmt.Errorf("volume_profile: burst_duration_min must be >= 1 when burst_probability > 0")
+	}
+	if vp.BurstDurationMax < vp.BurstDurationMin {
+		return fmt.Errorf("volume_profile: burst_duration_max must be >= burst_duration_min")
+	}
+	if vp.QuietMultiplier < 0 {
+		return fmt.Errorf("volume_profile: quiet_multiplier must be non-negative")
+	}
+	if vp.QuietDurationMin < 1 && vp.QuietProbability > 0 {
+		return fmt.Errorf("volume_profile: quiet_duration_min must be >= 1 when quiet_probability > 0")
+	}
+	if vp.QuietDurationMax < vp.QuietDurationMin {
+		return fmt.Errorf("volume_profile: quiet_duration_max must be >= quiet_duration_min")
 	}
 	return nil
 }

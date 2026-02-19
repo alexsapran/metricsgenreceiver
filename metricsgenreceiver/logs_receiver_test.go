@@ -3,6 +3,7 @@ package metricsgenreceiver
 import (
 	"context"
 	"encoding/json"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
@@ -204,4 +205,197 @@ func TestLogsGenReceiver_ExternalTemplate(t *testing.T) {
 	assert.Contains(t, serviceNames, "external-1", "external template must produce service.name from template")
 	assert.Contains(t, podNames, "ext-pod-0", "external template must produce k8s.pod.name from template")
 	assert.Contains(t, podNames, "ext-pod-1", "external template must produce k8s.pod.name from template")
+}
+
+func TestResolveVolumeMultiplier_NilProfile(t *testing.T) {
+	vs := volumeState{}
+	rng := rand.New(rand.NewSource(42))
+	for i := 0; i < 100; i++ {
+		assert.Equal(t, 1.0, resolveVolumeMultiplier(&vs, rng, nil))
+	}
+}
+
+func TestResolveVolumeMultiplier_BurstAndQuiet(t *testing.T) {
+	vp := &VolumeProfileCfg{
+		BurstProbability:   1.0, // always burst
+		BurstMultiplierMin: 3.0,
+		BurstMultiplierMax: 3.0,
+		BurstDurationMin:   3,
+		BurstDurationMax:   3,
+	}
+	vs := volumeState{}
+	rng := rand.New(rand.NewSource(42))
+
+	// First call triggers a burst with duration 3 (remainingIntervals = 2 after first call)
+	m := resolveVolumeMultiplier(&vs, rng, vp)
+	assert.Equal(t, 3.0, m)
+	assert.Equal(t, 2, vs.remainingIntervals)
+
+	// Next 2 calls continue the burst
+	m = resolveVolumeMultiplier(&vs, rng, vp)
+	assert.Equal(t, 3.0, m)
+	assert.Equal(t, 1, vs.remainingIntervals)
+
+	m = resolveVolumeMultiplier(&vs, rng, vp)
+	assert.Equal(t, 3.0, m)
+	assert.Equal(t, 0, vs.remainingIntervals)
+
+	// Burst expired, next call rolls again (still probability=1.0, so new burst)
+	m = resolveVolumeMultiplier(&vs, rng, vp)
+	assert.Equal(t, 3.0, m)
+}
+
+func TestResolveVolumeMultiplier_QuietPeriod(t *testing.T) {
+	vp := &VolumeProfileCfg{
+		BurstProbability:   0.0,
+		QuietProbability:   1.0, // always quiet
+		QuietMultiplier:    0.2,
+		QuietDurationMin:   2,
+		QuietDurationMax:   2,
+	}
+	vs := volumeState{}
+	rng := rand.New(rand.NewSource(42))
+
+	m := resolveVolumeMultiplier(&vs, rng, vp)
+	assert.Equal(t, 0.2, m)
+	assert.Equal(t, 1, vs.remainingIntervals)
+
+	m = resolveVolumeMultiplier(&vs, rng, vp)
+	assert.Equal(t, 0.2, m)
+	assert.Equal(t, 0, vs.remainingIntervals)
+}
+
+func TestResolveVolumeMultiplier_Deterministic(t *testing.T) {
+	vp := &VolumeProfileCfg{
+		BurstProbability:   0.3,
+		BurstMultiplierMin: 2.0,
+		BurstMultiplierMax: 5.0,
+		BurstDurationMin:   1,
+		BurstDurationMax:   4,
+		QuietProbability:   0.2,
+		QuietMultiplier:    0.1,
+		QuietDurationMin:   1,
+		QuietDurationMax:   3,
+	}
+
+	run := func(seed int64) []float64 {
+		vs := volumeState{}
+		rng := rand.New(rand.NewSource(seed))
+		results := make([]float64, 50)
+		for i := range results {
+			results[i] = resolveVolumeMultiplier(&vs, rng, vp)
+		}
+		return results
+	}
+
+	assert.Equal(t, run(42), run(42), "same seed must produce same sequence")
+	assert.NotEqual(t, run(42), run(99), "different seeds must produce different sequences")
+}
+
+func TestLogsGenReceiver_VolumeProfile_VariableVolume(t *testing.T) {
+	startTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := &Config{
+		StartTime: startTime,
+		EndTime:   startTime.Add(20 * time.Second),
+		Interval:  1 * time.Second,
+		Seed:      42,
+		RealTime:  false,
+		LogScenarios: []LogScenarioCfg{
+			{
+				Path:            "builtin/simple",
+				Scale:           1,
+				LogsPerInterval: 10,
+				VolumeProfile: &VolumeProfileCfg{
+					BurstProbability:   0.3,
+					BurstMultiplierMin: 3.0,
+					BurstMultiplierMax: 5.0,
+					BurstDurationMin:   1,
+					BurstDurationMax:   3,
+					QuietProbability:   0.2,
+					QuietMultiplier:    0.2,
+					QuietDurationMin:   1,
+					QuietDurationMax:   2,
+				},
+			},
+		},
+	}
+	require.NoError(t, cfg.Validate())
+
+	sink := new(consumertest.LogsSink)
+	factory := NewFactory()
+	rcv, err := factory.CreateLogs(context.Background(), receivertest.NewNopSettings(typ), cfg, sink)
+	require.NoError(t, err)
+	require.NoError(t, rcv.Start(context.Background(), nil))
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Greater(c, sink.LogRecordCount(), 0)
+	}, 5*time.Second, 50*time.Millisecond)
+
+	// Wait for generation to complete (20 intervals)
+	time.Sleep(200 * time.Millisecond)
+	require.NoError(t, rcv.Shutdown(context.Background()))
+
+	// With volume_profile, per-batch log counts should vary (not all equal to 10).
+	batchCounts := make(map[int]bool)
+	for _, batch := range sink.AllLogs() {
+		batchCounts[batch.LogRecordCount()] = true
+	}
+	assert.Greater(t, len(batchCounts), 1,
+		"volume_profile should produce varying log counts per batch, got counts: %v", batchCounts)
+}
+
+func runLogsReceiverUntilDone(t *testing.T, cfg *Config) []plog.Logs {
+	sink := new(consumertest.LogsSink)
+	factory := NewFactory()
+	rcv, err := factory.CreateLogs(context.Background(), receivertest.NewNopSettings(typ), cfg, sink)
+	require.NoError(t, err)
+	require.NoError(t, rcv.Start(context.Background(), nil))
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Greater(c, sink.LogRecordCount(), 0)
+	}, 5*time.Second, 50*time.Millisecond)
+	// Allow generation to finish
+	time.Sleep(300 * time.Millisecond)
+	require.NoError(t, rcv.Shutdown(context.Background()))
+	return sink.AllLogs()
+}
+
+func TestLogsGenReceiver_VolumeProfile_Deterministic(t *testing.T) {
+	startTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	makeCfg := func() *Config {
+		return &Config{
+			StartTime: startTime,
+			EndTime:   startTime.Add(5 * time.Second),
+			Interval:  1 * time.Second,
+			Seed:      42,
+			RealTime:  false,
+			LogScenarios: []LogScenarioCfg{
+				{
+					Path:            "builtin/simple",
+					Scale:           1,
+					LogsPerInterval: 10,
+					VolumeProfile: &VolumeProfileCfg{
+						BurstProbability:   0.3,
+						BurstMultiplierMin: 2.0,
+						BurstMultiplierMax: 4.0,
+						BurstDurationMin:   1,
+						BurstDurationMax:   2,
+						QuietProbability:   0.2,
+						QuietMultiplier:    0.3,
+						QuietDurationMin:   1,
+						QuietDurationMax:   2,
+					},
+				},
+			},
+		}
+	}
+
+	logs1 := runLogsReceiverUntilDone(t, makeCfg())
+	logs2 := runLogsReceiverUntilDone(t, makeCfg())
+
+	json1, err := marshalLogsToJSON(logs1)
+	require.NoError(t, err)
+	json2, err := marshalLogsToJSON(logs2)
+	require.NoError(t, err)
+	assert.Equal(t, json1, json2, "same seed and volume_profile must produce identical output")
 }

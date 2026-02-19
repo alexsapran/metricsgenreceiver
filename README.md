@@ -163,6 +163,19 @@ receivers:
     * `rate`: probability (0.0–1.0) of replacing a log with this needle.
     * `severity`: INFO, WARN, ERROR, or FATAL.
     * `attributes`: optional key-value attributes to add to the log record.
+  * `volume_profile`: optional block that introduces probabilistic volume variation per interval.
+    When omitted, each interval produces exactly `logs_per_interval` logs (flat volume).
+    When present, the generator randomly enters burst or quiet periods, scaling the log count up or down.
+    The RNG is seeded, so results are reproducible.
+    * `burst_probability`: chance (0.0–1.0) of entering a burst each interval when not already in a burst or quiet period.
+    * `burst_multiplier_min`: minimum multiplier applied to `logs_per_interval` during a burst.
+    * `burst_multiplier_max`: maximum multiplier applied to `logs_per_interval` during a burst. The actual multiplier is chosen uniformly at random in `[min, max]`.
+    * `burst_duration_min`: minimum number of consecutive intervals a burst lasts.
+    * `burst_duration_max`: maximum number of consecutive intervals a burst lasts.
+    * `quiet_probability`: chance (0.0–1.0) of entering a quiet period each interval when not already in a burst or quiet period.
+    * `quiet_multiplier`: multiplier applied to `logs_per_interval` during a quiet period (e.g. `0.2` produces 20% of the baseline).
+    * `quiet_duration_min`: minimum number of consecutive intervals a quiet period lasts.
+    * `quiet_duration_max`: maximum number of consecutive intervals a quiet period lasts.
   * Built-in log scenarios:
     * `builtin/simple`: generic log messages with basic resource attributes.
     * `builtin/k8s-nginx`: nginx access-style logs in a Kubernetes context.

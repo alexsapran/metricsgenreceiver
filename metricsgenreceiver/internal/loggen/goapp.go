@@ -14,8 +14,9 @@ var goAppDbHosts = []string{"mysql-primary:3306", "postgres:5432", "localhost:54
 
 func GoAppProfile() *AppProfile {
 	return &AppProfile{
-		Name:            "goapp",
-		SeverityWeights: [4]int{70, 90, 98, 100},
+		Name:             "goapp",
+		SeverityWeights:  [4]int{70, 90, 98, 100},
+		EmitTraceContext: true,
 		Messages: append(
 			goAppInfoLogs(),
 			goAppWarnLogs()...,

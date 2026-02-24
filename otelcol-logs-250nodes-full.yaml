@@ -1,0 +1,116 @@
+receivers:
+  metricsgen:
+    start_now_minus: 4h
+    interval: 5s
+    interval_jitter_std_dev: 50ms
+    real_time: false
+    exit_after_end: true
+    seed: 42
+    log_scenarios:
+      # Nginx ingress controller — dedicated ingress nodes
+      - path: builtin/k8s-nginx
+        scale: 45                      # 15 nodes × 3 pods/node
+        logs_per_interval: 120         # access logs are high-volume
+        concurrency: 15
+        template_vars:
+          nodes: 15
+          pods_per_node: 3
+        volume_profile:
+          burst_probability: 0.05      # chance (0.0–1.0) of entering a burst each interval
+          burst_multiplier_min: 2.0    # minimum logs multiplier during a burst
+          burst_multiplier_max: 5.0    # maximum logs multiplier during a burst
+          burst_duration_min: 2        # minimum consecutive intervals a burst lasts
+          burst_duration_max: 8        # maximum consecutive intervals a burst lasts
+          quiet_probability: 0.03      # chance (0.0–1.0) of entering a quiet period each interval
+          quiet_multiplier: 0.2        # logs multiplier during a quiet period (0.2 = 20% of baseline)
+          quiet_duration_min: 3        # minimum consecutive intervals a quiet period lasts
+          quiet_duration_max: 10       # maximum consecutive intervals a quiet period lasts
+        needles:
+          - name: upstream_timeout
+            message: "upstream timed out (110: Connection timed out) while connecting to upstream"
+            rate: 0.0004
+            severity: ERROR
+            attributes:
+              error.type: "timeout"
+              upstream.host: "backend-svc:8080"
+
+      # MySQL database — StatefulSets on dedicated DB nodes
+      - path: builtin/k8s-mysql
+        scale: 20                      # 10 nodes × 2 pods/node
+        logs_per_interval: 8
+        concurrency: 10
+        template_vars:
+          nodes: 10
+        needles:
+          - name: deadlock
+            message: "LATEST DETECTED DEADLOCK in transaction 0x7f2a1c003e80"
+            rate: 0.0005
+            severity: FATAL
+            attributes:
+              db.statement: "UPDATE orders SET status='processing' WHERE id=42"
+          - name: disk_full
+            message: "No space left on device writing to /var/lib/mysql/ibdata1"
+            rate: 0.0002
+            severity: FATAL
+
+      # Redis cache — small clusters with masters + replicas
+      - path: builtin/k8s-redis
+        scale: 16                      # 8 nodes × 2 pods/node
+        logs_per_interval: 12
+        concurrency: 8
+        template_vars:
+          nodes: 8
+
+      # Go microservices — full scale (6 pods/node across 250 nodes)
+      - path: builtin/k8s-goapp
+        scale: 1500                    # 250 nodes × 6 pods/node
+        logs_per_interval: 25
+        concurrency: 50
+        emit_trace_context: false       # simulate OTel-instrumented apps with trace/span IDs
+        template_vars:
+          nodes: 250
+        needles:
+          - name: panic_recovery
+            message: '{"level":"fatal","ts":"2025-01-01T00:00:00Z","caller":"main.go:42","msg":"panic recovered","error":"runtime error: index out of range [5] with length 3","stacktrace":"goroutine 1 [running]:\nmain.handleRequest()"}'
+            rate: 0.0001
+            severity: FATAL
+
+#      # Simple log template (for testing)
+#      - path: builtin/simple
+#        scale: 5
+#        logs_per_interval: 10
+
+processors:
+  batch:
+
+extensions:
+  pprof:
+
+exporters:
+  debug:
+    verbosity: detailed
+  file:
+    path: ./file-exporter/logs-generated.json
+  nop:
+  elasticsearch:
+    endpoints: [ https://localhost:9200 ]
+    user: elastic
+    password: changeme
+    num_workers: 2
+    sending_queue:
+      enabled: false
+    mapping:
+      mode: otel
+    tls:
+      insecure_skip_verify: true
+
+service:
+#  extensions: [pprof]
+  pipelines:
+    logs:
+      receivers: [metricsgen]
+#      processors: [batch]
+      exporters: [nop]
+#      exporters: [elasticsearch] # do not use with batch processor. ES exporter is doing batching internally.
+#      exporters: [debug]
+#      exporters: [file]

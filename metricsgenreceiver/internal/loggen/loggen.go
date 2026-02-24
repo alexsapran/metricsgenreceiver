@@ -35,6 +35,10 @@ type AppProfile struct {
 	// SeverityWeights: cumulative weights for INFO, WARN, ERROR, FATAL.
 	// e.g. [70, 90, 98, 100] means 70% INFO, 20% WARN, 8% ERROR, 2% FATAL
 	SeverityWeights [4]int
+	// EmitTraceContext controls whether trace_id and span_id are set on log records.
+	// Only profiles representing instrumented applications (e.g. Go with OTel SDK)
+	// should set this to true.
+	EmitTraceContext bool
 }
 
 // MessageTemplate is a log message pattern with its severity.
@@ -152,6 +156,11 @@ func PrepareProfile(p *AppProfile) *PreparedProfile {
 		profile:    *p,
 		bySeverity: bySev,
 	}
+}
+
+// HasTraceContext returns whether log records from this profile should include trace/span IDs.
+func (pp *PreparedProfile) HasTraceContext() bool {
+	return pp.profile.EmitTraceContext
 }
 
 // GenerateFromPrepared generates a log record using pre-bucketed messages.

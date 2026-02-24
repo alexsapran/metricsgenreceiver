@@ -38,13 +38,14 @@ type ScenarioCfg struct {
 }
 
 type LogScenarioCfg struct {
-	Path            string            `mapstructure:"path"`
-	Scale           int               `mapstructure:"scale"`
-	Concurrency     int               `mapstructure:"concurrency"`
-	TemplateVars    map[string]any    `mapstructure:"template_vars"`
-	LogsPerInterval int               `mapstructure:"logs_per_interval"`
-	Needles         []NeedleCfg       `mapstructure:"needles"`
-	VolumeProfile   *VolumeProfileCfg `mapstructure:"volume_profile"`
+	Path             string            `mapstructure:"path"`
+	Scale            int               `mapstructure:"scale"`
+	Concurrency      int               `mapstructure:"concurrency"`
+	TemplateVars     map[string]any    `mapstructure:"template_vars"`
+	LogsPerInterval  int               `mapstructure:"logs_per_interval"`
+	EmitTraceContext bool              `mapstructure:"emit_trace_context"`
+	Needles          []NeedleCfg       `mapstructure:"needles"`
+	VolumeProfile    *VolumeProfileCfg `mapstructure:"volume_profile"`
 }
 
 type VolumeProfileCfg struct {

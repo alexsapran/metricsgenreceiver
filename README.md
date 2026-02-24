@@ -157,6 +157,7 @@ receivers:
     * `scale` is the total number of pod instances generated.
     * `template_vars.nodes` controls how many distinct `k8s.node.name` values pods are distributed across.
     * The formula `scale = nodes * pods_per_node` gives exact, known cardinalities for analytical queries (e.g. `count by k8s.node.name` returns exactly `nodes` distinct values).
+  * `emit_trace_context` (default `false`): when true, each log record gets a random `trace_id` and `span_id`, simulating an OTel-instrumented application. Only supported for profiles that model instrumented apps (currently `builtin/k8s-goapp`). Has no effect on other scenarios (e.g. nginx, mysql, redis) since those workloads don't typically have tracing context.
   * `needles`: optional list of needle configurations for injecting specific log messages at a given rate (useful for testing alerting).
     * `name`: unique identifier for the needle.
     * `message`: the log body to inject.

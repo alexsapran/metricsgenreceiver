@@ -343,13 +343,14 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 
 		statsShard.Record(lr.SeverityText(), instanceResource, lr)
 
-		// Random trace ID (16 bytes) and span ID (8 bytes)
-		var traceID [16]byte
-		var spanID [8]byte
-		rng.Read(traceID[:])
-		rng.Read(spanID[:])
-		lr.SetTraceID(traceID)
-		lr.SetSpanID(spanID)
+		if scn.config.EmitTraceContext && scn.prepared.HasTraceContext() {
+			var traceID [16]byte
+			var spanID [8]byte
+			rng.Read(traceID[:])
+			rng.Read(spanID[:])
+			lr.SetTraceID(traceID)
+			lr.SetSpanID(spanID)
+		}
 	}
 
 	logCount := logs.LogRecordCount()

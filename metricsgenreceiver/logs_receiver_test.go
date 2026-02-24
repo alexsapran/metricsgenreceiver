@@ -344,6 +344,64 @@ func TestLogsGenReceiver_VolumeProfile_VariableVolume(t *testing.T) {
 		"volume_profile should produce varying log counts per batch, got counts: %v", batchCounts)
 }
 
+func TestLogsGenReceiver_TraceContext_OnlyGoApp(t *testing.T) {
+	startTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := &Config{
+		StartTime: startTime,
+		EndTime:   startTime.Add(2 * time.Second),
+		Interval:  1 * time.Second,
+		Seed:      42,
+		RealTime:  false,
+		LogScenarios: []LogScenarioCfg{
+			{Path: "builtin/k8s-nginx", Scale: 1, LogsPerInterval: 5},
+			{Path: "builtin/k8s-goapp", Scale: 1, LogsPerInterval: 5, EmitTraceContext: true},
+		},
+	}
+	require.NoError(t, cfg.Validate())
+
+	sink := new(consumertest.LogsSink)
+	factory := NewFactory()
+	rcv, err := factory.CreateLogs(context.Background(), receivertest.NewNopSettings(typ), cfg, sink)
+	require.NoError(t, err)
+	require.NoError(t, rcv.Start(context.Background(), nil))
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Equal(c, 20, sink.LogRecordCount()) // 2 scenarios × 1 pod × 5 logs × 2 intervals
+	}, 2*time.Second, 10*time.Millisecond)
+	require.NoError(t, rcv.Shutdown(context.Background()))
+
+	var emptyTraceID [16]byte
+	var emptySpanID [8]byte
+
+	for _, batch := range sink.AllLogs() {
+		for i := 0; i < batch.ResourceLogs().Len(); i++ {
+			rl := batch.ResourceLogs().At(i)
+			svcName := ""
+			if v, ok := rl.Resource().Attributes().Get("service.name"); ok {
+				svcName = v.Str()
+			}
+			isGoApp := svcName != "nginx"
+			for j := 0; j < rl.ScopeLogs().Len(); j++ {
+				sl := rl.ScopeLogs().At(j)
+				for k := 0; k < sl.LogRecords().Len(); k++ {
+					lr := sl.LogRecords().At(k)
+					if isGoApp {
+						assert.NotEqual(t, emptyTraceID, [16]byte(lr.TraceID()),
+							"k8s-goapp logs (service=%s) must have trace_id set", svcName)
+						assert.NotEqual(t, emptySpanID, [8]byte(lr.SpanID()),
+							"k8s-goapp logs (service=%s) must have span_id set", svcName)
+					} else {
+						assert.Equal(t, emptyTraceID, [16]byte(lr.TraceID()),
+							"nginx logs must not have trace_id")
+						assert.Equal(t, emptySpanID, [8]byte(lr.SpanID()),
+							"nginx logs must not have span_id")
+					}
+				}
+			}
+		}
+	}
+}
+
 func runLogsReceiverUntilDone(t *testing.T, cfg *Config) []plog.Logs {
 	sink := new(consumertest.LogsSink)
 	factory := NewFactory()

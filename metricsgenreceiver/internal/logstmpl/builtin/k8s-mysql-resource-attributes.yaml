@@ -45,13 +45,10 @@ resourceLogs:
             stringValue: "primary"
         - key: k8s.pod.label.app.kubernetes.io/managed-by
           value:
-            stringValue: "Helm"
-        - key: k8s.pod.label.helm.sh/chart
+            stringValue: "mysql-operator"
+        - key: k8s.pod.label.mysql.oracle.com/cluster
           value:
-            stringValue: "mysql-11.1.17"
-        - key: k8s.pod.label.app.kubernetes.io/part-of
-          value:
-            stringValue: "mysql"
+            stringValue: "mysql-cluster"
         - key: k8s.statefulset.name
           value:
             stringValue: "mysql"

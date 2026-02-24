@@ -49,9 +49,9 @@ resourceLogs:
         - key: k8s.pod.label.helm.sh/chart
           value:
             stringValue: "redis-20.6.2"
-        - key: k8s.pod.label.app.kubernetes.io/part-of
+        - key: k8s.pod.label.redis.io/role
           value:
-            stringValue: "redis"
+            stringValue: "{{.ModFrom .InstanceID `master` `replica`}}"
         - key: k8s.statefulset.name
           value:
             stringValue: "redis-master"

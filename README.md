@@ -227,6 +227,8 @@ receivers:
     * `builtin/k8s-redis`: Redis server logs in a Kubernetes context.
     * `builtin/k8s-goapp`: Go application logs (JSON format) in a Kubernetes context.
 
+    Schema variability: different services emit different resource and record attributes, matching real-world K8s deployments. For example, nginx (Helm-managed ingress) includes all Helm labels; goapp (CI/CD-deployed) omits Helm labels but adds telemetry SDK and team ownership; mysql (operator-managed) uses `managed-by: mysql-operator`; redis varies `redis.io/role` (master/replica). Record-level attributes also vary per template (e.g. `http.flavor` and `user_agent.original` on some nginx access logs, `rpc.system`/`rpc.service`/`rpc.method` on gRPC templates, `db.operation.name`/`db.sql.table` on query templates).
+
 ### Adding new log types
 
 To add a new log type:

@@ -67,7 +67,8 @@ func goAppInfoLogs() []MessageTemplate {
 				RandomPath(goAppServices), RandomPath(goAppGrpcMethods),
 				RandomDuration(5, 200),
 			},
-			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+			AttrFromArg: map[string]int{"rpc.service": 2, "rpc.method": 3},
+			Attrs:       map[string]ArgGenerator{"telemetry.sdk.language": Static("go"), "rpc.system": Static("grpc")},
 		},
 		{
 			Severity: plog.SeverityNumberInfo,
@@ -77,7 +78,8 @@ func goAppInfoLogs() []MessageTemplate {
 				RandomID(12), RandomPath(goAppQueues),
 				RandomDuration(50, 2000),
 			},
-			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+			AttrFromArg: map[string]int{"messaging.destination.name": 3},
+			Attrs:       map[string]ArgGenerator{"telemetry.sdk.language": Static("go"), "messaging.system": Static("rabbitmq")},
 		},
 		{
 			Severity: plog.SeverityNumberInfo,
@@ -166,7 +168,8 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 				Timestamp(tsLayout), RandomInt(60, 95),
 				RandomPath(goAppServices), RandomPath(goAppGrpcMethods),
 			},
-			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+			AttrFromArg: map[string]int{"rpc.service": 2, "rpc.method": 3},
+			Attrs:       map[string]ArgGenerator{"telemetry.sdk.language": Static("go"), "rpc.system": Static("grpc")},
 		},
 		{
 			Severity: plog.SeverityNumberError,
@@ -196,7 +199,8 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 				RandomPath(goAppServices), RandomPath(goAppGrpcMethods),
 				RandomPath(goAppErrors),
 			},
-			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+			AttrFromArg: map[string]int{"rpc.service": 2, "rpc.method": 3},
+			Attrs:       map[string]ArgGenerator{"telemetry.sdk.language": Static("go"), "rpc.system": Static("grpc")},
 		},
 		{
 			Severity: plog.SeverityNumberError,
@@ -233,7 +237,8 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 				RandomPath(goAppServices), RandomPath(goAppGrpcMethods),
 				RandomPath(goAppErrors), JavaStackTrace(500, 2500, rng),
 			},
-			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+			AttrFromArg: map[string]int{"rpc.service": 2, "rpc.method": 3},
+			Attrs:       map[string]ArgGenerator{"telemetry.sdk.language": Static("go"), "rpc.system": Static("grpc")},
 		},
 		{
 			Severity: plog.SeverityNumberFatal,
@@ -284,7 +289,7 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 				Timestamp(tsLayout), RandomInt(70, 110),
 				RandomID(12), RandomPath(goAppErrors), GoStackTrace(700, 4000, rng),
 			},
-			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go"), "messaging.system": Static("rabbitmq")},
 		},
 		{
 			Severity: plog.SeverityNumberFatal,
@@ -293,7 +298,8 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 				Timestamp(tsLayout), RandomInt(60, 95),
 				RandomPath(goAppServices), RandomPath(goAppErrors), JavaStackTrace(800, 4500, rng),
 			},
-			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+			AttrFromArg: map[string]int{"rpc.service": 2},
+			Attrs:       map[string]ArgGenerator{"telemetry.sdk.language": Static("go"), "rpc.system": Static("grpc")},
 		},
 	}
 }

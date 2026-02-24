@@ -43,15 +43,15 @@ resourceLogs:
         - key: k8s.pod.label.app.kubernetes.io/component
           value:
             stringValue: "{{.ModFrom .InstanceID `gateway` `api` `api` `api` `worker`}}"
-        - key: k8s.pod.label.app.kubernetes.io/managed-by
+        - key: k8s.pod.label.team
           value:
-            stringValue: "Helm"
-        - key: k8s.pod.label.helm.sh/chart
+            stringValue: "{{.ModFrom .InstanceID `platform` `payments` `growth` `infrastructure`}}"
+        - key: telemetry.sdk.name
           value:
-            stringValue: "{{.ModFrom .InstanceID `api-gateway-0.5.1` `user-service-1.2.0` `order-service-1.1.4` `payment-service-2.0.3` `notification-service-0.9.7`}}"
-        - key: k8s.pod.label.app.kubernetes.io/part-of
+            stringValue: "opentelemetry"
+        - key: telemetry.sdk.language
           value:
-            stringValue: "platform"
+            stringValue: "go"
         - key: k8s.replicaset.name
           value:
             stringValue: "{{.ModFrom .InstanceID `api-gateway` `user-service` `order-service` `payment-service` `notification-service`}}-{{.RandomHex 10}}"

@@ -76,7 +76,7 @@ func redisInfoLogs(zipfIP ArgGenerator) []MessageTemplate {
 			Severity: plog.SeverityNumberInfo,
 			Format:   "%d:%s %s # Connection accepted from %s:%d",
 			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), zipfIP, RandomInt(40000, 65000)},
-			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis"), "net.peer.port": RandomFromInt(6379)},
 		},
 	}
 }
@@ -90,7 +90,7 @@ func redisDebugLogs(zipfIP ArgGenerator, rng *rand.Rand) []MessageTemplate {
 			Severity: plog.SeverityNumberDebug,
 			Format:   "%d:%s %s - Accepted %s:%d -> %s:%d",
 			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), zipfIP, RandomInt(40000, 65000), RandomFrom("127.0.0.1", "10.0.0.1"), RandomInt(6379, 6381)},
-			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis"), "net.peer.port": RandomFromInt(6379)},
 		},
 		{
 			Severity: plog.SeverityNumberDebug,
@@ -102,7 +102,7 @@ func redisDebugLogs(zipfIP ArgGenerator, rng *rand.Rand) []MessageTemplate {
 			Severity: plog.SeverityNumberDebug,
 			Format:   "%d:%s %s * SLOWLOG output:\n%s",
 			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RedisSlowlogOutput(600, 2500, rng)},
-			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis"), "db.operation.name": RandomFrom("GET", "SET", "HGETALL", "LRANGE")},
 		},
 	}
 }

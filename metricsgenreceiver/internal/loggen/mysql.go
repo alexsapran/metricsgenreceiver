@@ -12,9 +12,10 @@ var mysqlColumns = []string{"id", "user_id", "email", "status", "created_at"}
 func MySQLProfile() *AppProfile {
 	return &AppProfile{
 		Name:            "mysql",
-		SeverityWeights: [4]int{70, 90, 98, 100},
+		ScopeName:       "io.opentelemetry.mysql",
+		SeverityWeights: DefaultSeverityWeights(),
 		Messages: append(
-			mysqlInfoLogs(),
+			append(mysqlInfoLogs(), mysqlDebugLogs()...),
 			mysqlWarnLogs()...,
 		),
 	}
@@ -53,6 +54,29 @@ func mysqlInfoLogs() []MessageTemplate {
 			Format:   "%s %d [Note] [MY-%s] [Repl] Replica SQL thread for channel '' started, Replica has read all relay log; waiting for more updates",
 			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code},
 			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+	}
+}
+
+func mysqlDebugLogs() []MessageTemplate {
+	tsLayout := "2006-01-02 15:04:05.000000"
+	threadID := RandomInt(1, 100)
+	code := RandomFrom("010901", "010907")
+	db := RandomPath(mysqlDBNames)
+	table := RandomPath(mysqlTables)
+	return []MessageTemplate{
+		{
+			Severity: plog.SeverityNumberDebug,
+			Format:   "%s %d [Note] [MY-%s] [InnoDB] page_cleaner: flushed %d pages, %d%% of innodb_io_capacity",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, RandomInt(50, 500), RandomInt(10, 100)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberDebug,
+			Format:   "%s %d [Note] [MY-%s] [Server] Analyzing table '%s.%s': status OK",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, db, table},
+			AttrFromArg: map[string]int{"db.name": 3},
+			Attrs:       map[string]ArgGenerator{"db.system": Static("mysql")},
 		},
 	}
 }

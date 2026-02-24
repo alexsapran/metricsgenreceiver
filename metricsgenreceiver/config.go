@@ -46,6 +46,11 @@ type LogScenarioCfg struct {
 	EmitTraceContext bool              `mapstructure:"emit_trace_context"`
 	Needles          []NeedleCfg       `mapstructure:"needles"`
 	VolumeProfile    *VolumeProfileCfg `mapstructure:"volume_profile"`
+	// SeverityWeights overrides the profile's default severity distribution.
+	// Cumulative percentages for [TRACE, DEBUG, INFO, WARN, ERROR, FATAL].
+	// e.g. [0, 2, 87, 94, 99, 100] = 0% TRACE, 2% DEBUG, 85% INFO, 7% WARN, 5% ERROR, 1% FATAL.
+	// If nil or all zeros, the profile default is used.
+	SeverityWeights *[6]int `mapstructure:"severity_weights"`
 }
 
 type VolumeProfileCfg struct {
@@ -141,15 +146,38 @@ func (cfg *Config) Validate() error {
 			}
 			sev := strings.ToUpper(strings.TrimSpace(needle.Severity))
 			if sev != "" {
-				valid := sev == "INFO" || sev == "WARN" || sev == "ERROR" || sev == "FATAL"
+				valid := sev == "TRACE" || sev == "DEBUG" || sev == "INFO" || sev == "WARN" || sev == "ERROR" || sev == "FATAL"
 				if !valid {
-					return fmt.Errorf("log_scenarios: needle %q severity must be INFO, WARN, ERROR, or FATAL", needle.Name)
+					return fmt.Errorf("log_scenarios: needle %q severity must be TRACE, DEBUG, INFO, WARN, ERROR, or FATAL", needle.Name)
 				}
 			}
 		}
 		if err := validateVolumeProfile(scn.VolumeProfile); err != nil {
 			return fmt.Errorf("log_scenarios: %w", err)
 		}
+		if err := validateSeverityWeights(scn.SeverityWeights); err != nil {
+			return fmt.Errorf("log_scenarios: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateSeverityWeights(sw *[6]int) error {
+	if sw == nil {
+		return nil
+	}
+	prev := 0
+	for i, w := range sw {
+		if w < prev {
+			return fmt.Errorf("severity_weights: values must be non-decreasing (index %d: %d < %d)", i, w, prev)
+		}
+		if w < 0 || w > 100 {
+			return fmt.Errorf("severity_weights: values must be between 0 and 100 (index %d: %d)", i, w)
+		}
+		prev = w
+	}
+	if sw[5] != 100 {
+		return fmt.Errorf("severity_weights: last value must be 100 (got %d)", sw[5])
 	}
 	return nil
 }

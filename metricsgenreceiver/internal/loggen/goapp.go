@@ -15,10 +15,11 @@ var goAppDbHosts = []string{"mysql-primary:3306", "postgres:5432", "localhost:54
 func GoAppProfile() *AppProfile {
 	return &AppProfile{
 		Name:             "goapp",
-		SeverityWeights:  [4]int{70, 90, 98, 100},
+		ScopeName:        "io.opentelemetry.goapp",
+		SeverityWeights:  DefaultSeverityWeights(),
 		EmitTraceContext: true,
 		Messages: append(
-			goAppInfoLogs(),
+			append(goAppInfoLogs(), goAppDebugLogs()...),
 			goAppWarnLogs()...,
 		),
 	}
@@ -36,7 +37,7 @@ func goAppInfoLogs() []MessageTemplate {
 				RandomFromInt(200, 201, 204, 304), RandomDuration(10, 500),
 				RandomID(16),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
 			Severity: plog.SeverityNumberInfo,
@@ -45,7 +46,7 @@ func goAppInfoLogs() []MessageTemplate {
 				Timestamp(tsLayout), RandomInt(50, 80),
 				RandomPath(goAppDbHosts), RandomPath(mysqlDBNames),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
 			Severity: plog.SeverityNumberInfo,
@@ -55,7 +56,7 @@ func goAppInfoLogs() []MessageTemplate {
 				RandomPath(goAppServices), RandomPath(goAppGrpcMethods),
 				RandomDuration(5, 200),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
 			Severity: plog.SeverityNumberInfo,
@@ -65,7 +66,7 @@ func goAppInfoLogs() []MessageTemplate {
 				RandomID(12), RandomPath(goAppQueues),
 				RandomDuration(50, 2000),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
 			Severity: plog.SeverityNumberInfo,
@@ -75,7 +76,33 @@ func goAppInfoLogs() []MessageTemplate {
 				RandomPath(goAppHTTPMethods), RandomPath(goAppPaths),
 				RandomID(16),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+	}
+}
+
+func goAppDebugLogs() []MessageTemplate {
+	tsLayout := "2006-01-02T15:04:05.000Z0700"
+	return []MessageTemplate{
+		{
+			Severity: plog.SeverityNumberDebug,
+			Format:   `{"level":"debug","ts":"%s","caller":"server/handler.go:%d","msg":"request headers","method":"%s","path":"%s","content_type":"application/json","accept":"application/json","user_agent":"%s","request_id":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(45, 120),
+				RandomPath(goAppHTTPMethods), RandomPath(goAppPaths),
+				RandomUserAgent, RandomID(16),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+		{
+			Severity: plog.SeverityNumberDebug,
+			Format:   `{"level":"debug","ts":"%s","caller":"db/query.go:%d","msg":"executing query","query":"SELECT * FROM %s WHERE id = $1","params":["%%s"],"duration":"%dms"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(80, 120),
+				RandomPath(mysqlTables), RandomID(8),
+				RandomDuration(1, 50),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 	}
 }
@@ -91,7 +118,7 @@ func goAppWarnLogs() []MessageTemplate {
 				RandomPath(goAppHTTPMethods), RandomPath(goAppPaths),
 				RandomDuration(500, 3000),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
 			Severity: plog.SeverityNumberWarn,
@@ -100,7 +127,7 @@ func goAppWarnLogs() []MessageTemplate {
 				Timestamp(tsLayout), RandomInt(30, 60),
 				RandomFrom("user:123", "session:abc", "config:global", "product:456"),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
 			Severity: plog.SeverityNumberWarn,
@@ -109,7 +136,7 @@ func goAppWarnLogs() []MessageTemplate {
 				Timestamp(tsLayout), RandomInt(60, 95),
 				RandomPath(goAppServices), RandomPath(goAppGrpcMethods),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
 			Severity: plog.SeverityNumberError,
@@ -119,7 +146,7 @@ func goAppWarnLogs() []MessageTemplate {
 				RandomPath(goAppHTTPMethods), RandomPath(goAppPaths),
 				RandomPath(goAppErrors), RandomID(16),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
 			Severity: plog.SeverityNumberError,
@@ -129,7 +156,7 @@ func goAppWarnLogs() []MessageTemplate {
 				RandomPath(mysqlTables), RandomPath(goAppErrors),
 				RandomDuration(100, 5000),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
 			Severity: plog.SeverityNumberError,
@@ -139,13 +166,13 @@ func goAppWarnLogs() []MessageTemplate {
 				RandomPath(goAppServices), RandomPath(goAppGrpcMethods),
 				RandomPath(goAppErrors),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
 			Severity: plog.SeverityNumberFatal,
 			Format:   `{"level":"fatal","ts":"%s","caller":"main.go:42","msg":"failed to start server","error":"listen tcp :8080: bind: address already in use"}`,
 			Args:     []ArgGenerator{Timestamp(tsLayout)},
-			Attrs:    map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs:    map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
 			Severity: plog.SeverityNumberFatal,
@@ -154,7 +181,7 @@ func goAppWarnLogs() []MessageTemplate {
 				Timestamp(tsLayout), RandomInt(50, 80),
 				RandomPath(goAppDbHosts),
 			},
-			Attrs: map[string]ArgGenerator{"service.language": Static("go")},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 	}
 }

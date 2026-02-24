@@ -158,11 +158,22 @@ receivers:
     * `template_vars.nodes` controls how many distinct `k8s.node.name` values pods are distributed across.
     * The formula `scale = nodes * pods_per_node` gives exact, known cardinalities for analytical queries (e.g. `count by k8s.node.name` returns exactly `nodes` distinct values).
   * `emit_trace_context` (default `false`): when true, each log record gets a random `trace_id` and `span_id`, simulating an OTel-instrumented application. Only supported for profiles that model instrumented apps (currently `builtin/k8s-goapp`). Has no effect on other scenarios (e.g. nginx, mysql, redis) since those workloads don't typically have tracing context.
+  * `severity_weights`: optional array of 6 cumulative percentages that override the profile's default severity distribution.
+    The order is `[TRACE, DEBUG, INFO, WARN, ERROR, FATAL]`. Each value is the cumulative boundary out of 100.
+    The last value must be `100` and values must be non-decreasing.
+    When omitted, the profile default is used: `[0, 2, 87, 94, 99, 100]` which produces approximately:
+    * TRACE: 0%, DEBUG: 2%, INFO: 85%, WARN: 7%, ERROR: 5%, FATAL: 1%.
+
+    Example — a high-error scenario for stress testing:
+    ```yaml
+    severity_weights: [0, 0, 50, 65, 90, 100]
+    # TRACE 0%, DEBUG 0%, INFO 50%, WARN 15%, ERROR 25%, FATAL 10%
+    ```
   * `needles`: optional list of needle configurations for injecting specific log messages at a given rate (useful for testing alerting).
     * `name`: unique identifier for the needle.
     * `message`: the log body to inject.
     * `rate`: probability (0.0–1.0) of replacing a log with this needle.
-    * `severity`: INFO, WARN, ERROR, or FATAL.
+    * `severity`: TRACE, DEBUG, INFO, WARN, ERROR, or FATAL.
     * `attributes`: optional key-value attributes to add to the log record.
   * `volume_profile`: optional block that introduces probabilistic volume variation per interval.
     When omitted, each interval produces exactly `logs_per_interval` logs (flat volume).

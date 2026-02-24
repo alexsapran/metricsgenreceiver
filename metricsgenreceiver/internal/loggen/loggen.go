@@ -14,6 +14,10 @@ import (
 // Empty or unknown values default to SeverityNumberError.
 func ParseSeverity(s string) plog.SeverityNumber {
 	switch strings.ToUpper(s) {
+	case "TRACE":
+		return plog.SeverityNumberTrace
+	case "DEBUG":
+		return plog.SeverityNumberDebug
 	case "INFO":
 		return plog.SeverityNumberInfo
 	case "WARN":
@@ -27,14 +31,22 @@ func ParseSeverity(s string) plog.SeverityNumber {
 	}
 }
 
+// DefaultSeverityWeights returns realistic production severity distribution:
+// TRACE 0.5%, DEBUG 2%, INFO 85%, WARN 7%, ERROR 5%, FATAL 0.5%
+func DefaultSeverityWeights() [6]int {
+	return [6]int{0, 2, 87, 94, 99, 100}
+}
+
 // AppProfile defines a log-generating application's behavior.
 type AppProfile struct {
 	Name string
+	// ScopeName is the instrumentation scope name for log records from this profile.
+	ScopeName string
 	// Messages contains all message templates. GenerateLogRecord picks by severity.
 	Messages []MessageTemplate
-	// SeverityWeights: cumulative weights for INFO, WARN, ERROR, FATAL.
-	// e.g. [70, 90, 98, 100] means 70% INFO, 20% WARN, 8% ERROR, 2% FATAL
-	SeverityWeights [4]int
+	// SeverityWeights: cumulative weights for TRACE, DEBUG, INFO, WARN, ERROR, FATAL.
+	// e.g. [0, 2, 87, 94, 99, 100] means 0.5% TRACE, 2% DEBUG, 85% INFO, 7% WARN, 5% ERROR, 0.5% FATAL
+	SeverityWeights [6]int
 	// EmitTraceContext controls whether trace_id and span_id are set on log records.
 	// Only profiles representing instrumented applications (e.g. Go with OTel SDK)
 	// should set this to true.
@@ -114,9 +126,11 @@ func GenerateLogRecord(rng *rand.Rand, profile AppProfile, timestamp time.Time) 
 	return body, tmpl.Severity, attrs
 }
 
-func pickSeverityFromWeights(rng *rand.Rand, w [4]int) plog.SeverityNumber {
+func pickSeverityFromWeights(rng *rand.Rand, w [6]int) plog.SeverityNumber {
 	n := rng.Intn(100)
-	severities := [4]plog.SeverityNumber{
+	severities := [6]plog.SeverityNumber{
+		plog.SeverityNumberTrace,
+		plog.SeverityNumberDebug,
 		plog.SeverityNumberInfo,
 		plog.SeverityNumberWarn,
 		plog.SeverityNumberError,
@@ -161,6 +175,19 @@ func PrepareProfile(p *AppProfile) *PreparedProfile {
 // HasTraceContext returns whether log records from this profile should include trace/span IDs.
 func (pp *PreparedProfile) HasTraceContext() bool {
 	return pp.profile.EmitTraceContext
+}
+
+// GetScopeName returns the instrumentation scope name for this profile.
+func (pp *PreparedProfile) GetScopeName() string {
+	if pp.profile.ScopeName != "" {
+		return pp.profile.ScopeName
+	}
+	return "log-generator"
+}
+
+// OverrideSeverityWeights replaces the profile's severity weights.
+func (pp *PreparedProfile) OverrideSeverityWeights(w [6]int) {
+	pp.profile.SeverityWeights = w
 }
 
 // GenerateFromPrepared generates a log record using pre-bucketed messages.

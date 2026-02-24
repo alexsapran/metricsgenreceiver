@@ -11,9 +11,10 @@ var nginxPaths = []string{
 func NginxProfile() *AppProfile {
 	return &AppProfile{
 		Name:            "nginx",
-		SeverityWeights: [4]int{70, 90, 98, 100},
+		ScopeName:       "io.opentelemetry.nginx",
+		SeverityWeights: DefaultSeverityWeights(),
 		Messages: append(
-			nginxAccessLogs(),
+			append(nginxAccessLogs(), nginxDebugLogs()...),
 			nginxWarnLogs()...,
 		),
 	}
@@ -80,6 +81,25 @@ func nginxAccessLogs() []MessageTemplate {
 			Args:        []ArgGenerator{RandomIP, Timestamp(tsLayout), RandomID(8), RandomFromInt(200, 204, 404), RandomBytes, RandomUserAgent},
 			AttrFromArg: map[string]int{"net.peer.ip": 0, "http.status_code": 3},
 			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("DELETE"), "http.url": Static("/api/v1/users")},
+		},
+	}
+}
+
+func nginxDebugLogs() []MessageTemplate {
+	tsLayout := "2006/01/02 15:04:05"
+	pid := RandomInt(1, 99999)
+	tid := RandomInt(0, 1)
+	connID := RandomInt(1000, 99999)
+	return []MessageTemplate{
+		{
+			Severity: plog.SeverityNumberDebug,
+			Format:   "%s [debug] %d#%d: *%d http process request line",
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID},
+		},
+		{
+			Severity: plog.SeverityNumberDebug,
+			Format:   "%s [debug] %d#%d: *%d http header: \"Host: %s\"",
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, RandomFrom("api.example.com", "localhost", "app.example.com")},
 		},
 	}
 }

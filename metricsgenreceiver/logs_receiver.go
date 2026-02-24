@@ -131,6 +131,9 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 			profile = loggen.GenericProfile(serviceName)
 		}
 		prepared := loggen.PrepareProfile(profile)
+		if scn.SeverityWeights != nil {
+			prepared.OverrideSeverityWeights(*scn.SeverityWeights)
+		}
 		scenarios = append(scenarios, LogScenario{
 			config:    scn,
 			resources: resources,
@@ -229,6 +232,10 @@ func addLogJitter(t time.Time, stdDev time.Duration, interval time.Duration, ra 
 
 func severityText(sev plog.SeverityNumber) string {
 	switch sev {
+	case plog.SeverityNumberTrace:
+		return "TRACE"
+	case plog.SeverityNumberDebug:
+		return "DEBUG"
 	case plog.SeverityNumberInfo:
 		return "INFO"
 	case plog.SeverityNumberWarn:
@@ -304,7 +311,7 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 	instanceResource.CopyTo(rl.Resource())
 
 	sl := rl.ScopeLogs().AppendEmpty()
-	sl.Scope().SetName("log-generator")
+	sl.Scope().SetName(scn.prepared.GetScopeName())
 
 	reusableAttrs := make(map[string]string, 8)
 	for i := 0; i < logsPerInterval; i++ {

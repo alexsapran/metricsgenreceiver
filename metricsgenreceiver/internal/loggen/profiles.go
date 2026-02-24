@@ -28,7 +28,8 @@ func GenericProfile(serviceName string) *AppProfile {
 	tsLayout := "2006-01-02T15:04:05.000Z"
 	return &AppProfile{
 		Name:            "generic",
-		SeverityWeights: [4]int{70, 90, 98, 100},
+		ScopeName:       "io.opentelemetry.generic",
+		SeverityWeights: DefaultSeverityWeights(),
 		Messages: []MessageTemplate{
 			{
 				Severity: plog.SeverityNumberInfo,

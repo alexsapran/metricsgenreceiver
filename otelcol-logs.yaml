@@ -12,6 +12,9 @@ receivers:
         scale: 30                     # total pod instances = nodes * pods_per_node (3 * 10 = 30)
         logs_per_interval: 50         # log records emitted per pod per interval
         concurrency: 10               # parallel goroutines for generation throughput
+        # severity_weights: [0, 2, 87, 94, 99, 100]  # optional override: [TRACE, DEBUG, INFO, WARN, ERROR, FATAL]
+        #   Default [0, 2, 87, 94, 99, 100] → TRACE 0%, DEBUG 2%, INFO 85%, WARN 7%, ERROR 5%, FATAL 1%
+        #   Example high-error: [0, 0, 50, 65, 90, 100] → INFO 50%, WARN 15%, ERROR 25%, FATAL 10%
         template_vars:
           nodes: 3                    # number of k8s nodes (distinct k8s.node.name values)
         needles:

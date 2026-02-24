@@ -58,29 +58,27 @@ func TestSeverityDistribution(t *testing.T) {
 	rng := rand.New(rand.NewSource(999))
 
 	const n = 10000
-	counts := map[plog.SeverityNumber]int{
-		plog.SeverityNumberInfo: 0,
-		plog.SeverityNumberWarn: 0,
-		plog.SeverityNumberError: 0,
-		plog.SeverityNumberFatal: 0,
-	}
+	counts := map[plog.SeverityNumber]int{}
 
 	for i := 0; i < n; i++ {
 		_, sev, _ := GenerateLogRecord(rng, profile, ts)
-		if c, ok := counts[sev]; ok {
-			counts[sev] = c + 1
-		}
+		counts[sev]++
 	}
 
-	// SeverityWeights [70, 90, 98, 100] => INFO 70%, WARN 20%, ERROR 8%, FATAL 2%
-	// Allow ±5% variance
-	assert.InDelta(t, 0.70, float64(counts[plog.SeverityNumberInfo])/n, 0.05, "INFO ~70%%")
-	assert.InDelta(t, 0.20, float64(counts[plog.SeverityNumberWarn])/n, 0.05, "WARN ~20%%")
-	assert.InDelta(t, 0.08, float64(counts[plog.SeverityNumberError])/n, 0.05, "ERROR ~8%%")
-	assert.InDelta(t, 0.02, float64(counts[plog.SeverityNumberFatal])/n, 0.05, "FATAL ~2%%")
+	// DefaultSeverityWeights [0, 2, 87, 94, 99, 100]:
+	// TRACE ~0%, DEBUG ~2%, INFO ~85%, WARN ~7%, ERROR ~5%, FATAL ~1%
+	assert.InDelta(t, 0.02, float64(counts[plog.SeverityNumberDebug])/n, 0.02, "DEBUG ~2%%")
+	assert.InDelta(t, 0.85, float64(counts[plog.SeverityNumberInfo])/n, 0.05, "INFO ~85%%")
+	assert.InDelta(t, 0.07, float64(counts[plog.SeverityNumberWarn])/n, 0.05, "WARN ~7%%")
+	assert.InDelta(t, 0.05, float64(counts[plog.SeverityNumberError])/n, 0.03, "ERROR ~5%%")
+	assert.InDelta(t, 0.01, float64(counts[plog.SeverityNumberFatal])/n, 0.02, "FATAL ~1%%")
 }
 
 func TestParseSeverity(t *testing.T) {
+	assert.Equal(t, plog.SeverityNumberTrace, ParseSeverity("TRACE"))
+	assert.Equal(t, plog.SeverityNumberTrace, ParseSeverity("trace"))
+	assert.Equal(t, plog.SeverityNumberDebug, ParseSeverity("DEBUG"))
+	assert.Equal(t, plog.SeverityNumberDebug, ParseSeverity("debug"))
 	assert.Equal(t, plog.SeverityNumberInfo, ParseSeverity("INFO"))
 	assert.Equal(t, plog.SeverityNumberInfo, ParseSeverity("info"))
 	assert.Equal(t, plog.SeverityNumberWarn, ParseSeverity("WARN"))

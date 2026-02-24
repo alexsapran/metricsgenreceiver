@@ -18,7 +18,7 @@ func TestAllProfiles(t *testing.T) {
 		{"nginx", NginxProfile(nil, nil)},
 		{"mysql", MySQLProfile(nil, nil)},
 		{"redis", RedisProfile(nil, nil)},
-		{"goapp", GoAppProfile()},
+		{"goapp", GoAppProfile(nil)},
 	}
 	rng := rand.New(rand.NewSource(42))
 	ts := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)

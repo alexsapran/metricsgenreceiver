@@ -19,8 +19,8 @@ func RedisProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		ScopeName:       "io.opentelemetry.redis",
 		SeverityWeights: DefaultSeverityWeights(),
 		Messages: append(
-			append(redisInfoLogs(zipfIP), redisDebugLogs(zipfIP)...),
-			redisWarnLogs()...,
+			append(redisInfoLogs(zipfIP), redisDebugLogs(zipfIP, rng)...),
+			redisWarnLogs(rng)...,
 		),
 	}
 }
@@ -30,6 +30,12 @@ func redisInfoLogs(zipfIP ArgGenerator) []MessageTemplate {
 	pid := RandomInt(1, 99999)
 	role := RandomFrom("M", "S", "C")
 	return []MessageTemplate{
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%d:%s %s + pong",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
 		{
 			Severity: plog.SeverityNumberInfo,
 			Format:   "%d:%s %s # Server started, Redis version=%s",
@@ -75,7 +81,7 @@ func redisInfoLogs(zipfIP ArgGenerator) []MessageTemplate {
 	}
 }
 
-func redisDebugLogs(zipfIP ArgGenerator) []MessageTemplate {
+func redisDebugLogs(zipfIP ArgGenerator, rng *rand.Rand) []MessageTemplate {
 	tsLayout := "02 Jan 2006 15:04:05.000"
 	pid := RandomInt(1, 99999)
 	role := RandomFrom("M", "S", "C")
@@ -92,10 +98,16 @@ func redisDebugLogs(zipfIP ArgGenerator) []MessageTemplate {
 			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomInt(100000, 5000000)},
 			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
 		},
+		{
+			Severity: plog.SeverityNumberDebug,
+			Format:   "%d:%s %s * SLOWLOG output:\n%s",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RedisSlowlogOutput(600, 2500, rng)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
 	}
 }
 
-func redisWarnLogs() []MessageTemplate {
+func redisWarnLogs(rng *rand.Rand) []MessageTemplate {
 	tsLayout := "02 Jan 2006 15:04:05.000"
 	pid := RandomInt(1, 99999)
 	role := RandomFrom("M", "S")
@@ -143,6 +155,18 @@ func redisWarnLogs() []MessageTemplate {
 			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
 		},
 		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%d:%s %s # Error accepting a client connection: %s\n%s",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomFrom("Connection reset by peer", "Invalid argument", "Too many open files"), RedisCrashReport(500, 2000, rng)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%d:%s %s # Can't save in background: fork: Cannot allocate memory\n%s",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RedisCrashReport(600, 3000, rng)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%d:%s %s # Fatal error, can't open config file '%s'",
 			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomFrom("/etc/redis/redis.conf", "/usr/local/etc/redis.conf")},
@@ -152,6 +176,24 @@ func redisWarnLogs() []MessageTemplate {
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%d:%s %s # === REDIS BUG REPORT START: Cut & paste starting from here ===",
 			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%d:%s %s # Fatal error, can't open config file '%s'\n%s",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomFrom("/etc/redis/redis.conf", "/usr/local/etc/redis.conf"), RedisCrashReport(800, 4500, rng)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%d:%s %s # === REDIS BUG REPORT START: Cut & paste starting from here ===\n%s",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RedisCrashReport(1000, 5000, rng)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%d:%s %s # Fatal signal 11 (SIGSEGV) at 0x%x\n%s",
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomInt(0, 0xffffffff), RedisCrashReport(700, 4000, rng)},
 			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
 		},
 	}

@@ -33,7 +33,7 @@ func GetAppProfile(path string, rng *rand.Rand, ipCfg *IPPoolConfig, scale int) 
 	case "k8s-redis":
 		return RedisProfile(rng, ipCfg)
 	case "k8s-goapp":
-		return GoAppProfile()
+		return GoAppProfile(rng)
 	default:
 		return nil
 	}

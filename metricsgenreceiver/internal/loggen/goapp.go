@@ -1,6 +1,8 @@
 package loggen
 
 import (
+	"math/rand"
+
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
@@ -12,15 +14,18 @@ var goAppQueues = []string{"orders", "notifications", "emails", "jobs"}
 var goAppErrors = []string{"connection refused", "timeout", "context deadline exceeded", "connection reset by peer"}
 var goAppDbHosts = []string{"mysql-primary:3306", "postgres:5432", "localhost:5432"}
 
-func GoAppProfile() *AppProfile {
+func GoAppProfile(rng *rand.Rand) *AppProfile {
+	if rng == nil {
+		rng = rand.New(rand.NewSource(0))
+	}
 	return &AppProfile{
 		Name:             "goapp",
 		ScopeName:        "io.opentelemetry.goapp",
 		SeverityWeights:  DefaultSeverityWeights(),
 		EmitTraceContext: true,
 		Messages: append(
-			append(goAppInfoLogs(), goAppDebugLogs()...),
-			goAppWarnLogs()...,
+			append(goAppInfoLogs(), goAppDebugLogs(rng)...),
+			goAppWarnLogs(rng)...,
 		),
 	}
 }
@@ -28,6 +33,12 @@ func GoAppProfile() *AppProfile {
 func goAppInfoLogs() []MessageTemplate {
 	tsLayout := "2006-01-02T15:04:05.000Z0700"
 	return []MessageTemplate{
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   `{"level":"info","msg":"ok"}`,
+			Args:     []ArgGenerator{},
+			Attrs:    map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
 		{
 			Severity: plog.SeverityNumberInfo,
 			Format:   `{"level":"info","ts":"%s","caller":"server/handler.go:%d","msg":"request completed","method":"%s","path":"%s","status":%d,"duration":"%dms","request_id":"%s"}`,
@@ -81,7 +92,7 @@ func goAppInfoLogs() []MessageTemplate {
 	}
 }
 
-func goAppDebugLogs() []MessageTemplate {
+func goAppDebugLogs(rng *rand.Rand) []MessageTemplate {
 	tsLayout := "2006-01-02T15:04:05.000Z0700"
 	return []MessageTemplate{
 		{
@@ -104,10 +115,29 @@ func goAppDebugLogs() []MessageTemplate {
 			},
 			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
+		{
+			Severity: plog.SeverityNumberDebug,
+			Format:   `{"level":"debug","ts":"%s","caller":"server/handler.go:%d","msg":"request body","method":"%s","path":"%s","body":%q,"request_id":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(45, 120),
+				RandomPath(goAppHTTPMethods), RandomPath(goAppPaths),
+				LargeJSONPayload(800, 2500, rng), RandomID(16),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+		{
+			Severity: plog.SeverityNumberDebug,
+			Format:   `{"level":"debug","ts":"%s","caller":"server/handler.go:%d","msg":"response body","path":"%s","body":%q,"request_id":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(45, 120),
+				RandomPath(goAppPaths), LargeJSONPayload(1000, 3000, rng), RandomID(16),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
 	}
 }
 
-func goAppWarnLogs() []MessageTemplate {
+func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 	tsLayout := "2006-01-02T15:04:05.000Z0700"
 	return []MessageTemplate{
 		{
@@ -169,6 +199,43 @@ func goAppWarnLogs() []MessageTemplate {
 			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},
 		{
+			Severity: plog.SeverityNumberError,
+			Format:   `{"level":"error","ts":"%s","caller":"server/handler.go:%d","msg":"panic recovered","error":"%s","stacktrace":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(45, 120),
+				RandomPath(goAppErrors), GoStackTrace(500, 2500, rng),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   `{"level":"error","ts":"%s","caller":"server/handler.go:%d","msg":"handler panic","error":"%s","request_id":"%s","stacktrace":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(45, 120),
+				RandomPath(goAppErrors), RandomID(16), GoStackTrace(600, 3000, rng),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   `{"level":"error","ts":"%s","caller":"db/query.go:%d","msg":"query panic","query":"SELECT * FROM %s","error":"%s","stacktrace":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(80, 120),
+				RandomPath(mysqlTables), RandomPath(goAppErrors), GoStackTrace(500, 2000, rng),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   `{"level":"error","ts":"%s","caller":"grpc/client.go:%d","msg":"grpc panic","service":"%s","method":"%s","error":"%s","stacktrace":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(60, 95),
+				RandomPath(goAppServices), RandomPath(goAppGrpcMethods),
+				RandomPath(goAppErrors), JavaStackTrace(500, 2500, rng),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+		{
 			Severity: plog.SeverityNumberFatal,
 			Format:   `{"level":"fatal","ts":"%s","caller":"main.go:42","msg":"failed to start server","error":"listen tcp :8080: bind: address already in use"}`,
 			Args:     []ArgGenerator{Timestamp(tsLayout)},
@@ -180,6 +247,51 @@ func goAppWarnLogs() []MessageTemplate {
 			Args: []ArgGenerator{
 				Timestamp(tsLayout), RandomInt(50, 80),
 				RandomPath(goAppDbHosts),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   `{"level":"fatal","ts":"%s","caller":"main.go:%d","msg":"unrecoverable panic","error":"%s","stacktrace":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(40, 50),
+				RandomPath(goAppErrors), GoStackTrace(800, 4000, rng),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   `{"level":"fatal","ts":"%s","caller":"server/handler.go:%d","msg":"fatal: out of memory","error":"runtime: out of memory","stacktrace":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(45, 120),
+				GoStackTrace(1000, 5000, rng),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   `{"level":"fatal","ts":"%s","caller":"db/connection.go:%d","msg":"fatal: database unreachable","host":"%s","error":"%s","stacktrace":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(50, 80),
+				RandomPath(goAppDbHosts), RandomPath(goAppErrors), GoStackTrace(600, 3500, rng),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   `{"level":"fatal","ts":"%s","caller":"worker/processor.go:%d","msg":"fatal: worker panic","job_id":"%s","error":"%s","stacktrace":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(70, 110),
+				RandomID(12), RandomPath(goAppErrors), GoStackTrace(700, 4000, rng),
+			},
+			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   `{"level":"fatal","ts":"%s","caller":"grpc/client.go:%d","msg":"fatal: grpc connection lost","service":"%s","error":"%s","stacktrace":"%s"}`,
+			Args: []ArgGenerator{
+				Timestamp(tsLayout), RandomInt(60, 95),
+				RandomPath(goAppServices), RandomPath(goAppErrors), JavaStackTrace(800, 4500, rng),
 			},
 			Attrs: map[string]ArgGenerator{"telemetry.sdk.language": Static("go")},
 		},

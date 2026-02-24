@@ -190,6 +190,21 @@ func nginxWarnLogs(rng *rand.Rand, ipCfg *IPPoolConfig) []MessageTemplate {
 			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server},
 		},
 		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%s [error] %d#%d: *%d connect() failed (111: Connection refused) while connecting to upstream, client: %s, server: %s, request: \"GET %s HTTP/1.1\", upstream: \"http://%s:%d%s\"\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server, path, upstreamIP, port, path, NginxErrorDetails(500, 2500, rng)},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%s [error] %d#%d: *%d upstream timed out (110: Connection timed out) while reading response header from upstream, client: %s, server: %s\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server, NginxErrorDetails(500, 3000, rng)},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%s [error] %d#%d: *%d no live upstreams while connecting to upstream, client: %s, server: %s\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server, NginxErrorDetails(600, 3500, rng)},
+		},
+		{
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%s [emerg] %d#%d: host not found in upstream \"%s\" in /etc/nginx/conf.d/upstream.conf:3",
 			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, RandomFrom("backend-api", "mysql-primary", "redis-cache")},
@@ -198,6 +213,21 @@ func nginxWarnLogs(rng *rand.Rand, ipCfg *IPPoolConfig) []MessageTemplate {
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%s [emerg] %d#%d: bind() to 0.0.0.0:%d failed (98: Address already in use)",
 			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, RandomInt(80, 8080)},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%s [emerg] %d#%d: host not found in upstream \"%s\" in /etc/nginx/conf.d/upstream.conf:3\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, RandomFrom("backend-api", "mysql-primary", "redis-cache"), NginxErrorDetails(800, 4000, rng)},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%s [emerg] %d#%d: bind() to 0.0.0.0:%d failed (98: Address already in use)\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, RandomInt(80, 8080), NginxErrorDetails(700, 4500, rng)},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%s [emerg] %d#%d: malloc() failed (12: Cannot allocate memory)\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, NginxErrorDetails(1000, 5000, rng)},
 		},
 	}
 }

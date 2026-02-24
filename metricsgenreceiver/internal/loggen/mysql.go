@@ -21,8 +21,8 @@ func MySQLProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		ScopeName:       "io.opentelemetry.mysql",
 		SeverityWeights: DefaultSeverityWeights(),
 		Messages: append(
-			append(mysqlInfoLogs(zipfIP), mysqlDebugLogs()...),
-			mysqlWarnLogs(zipfIP)...,
+			append(mysqlInfoLogs(zipfIP), mysqlDebugLogs(rng)...),
+			mysqlWarnLogs(zipfIP, rng)...,
 		),
 	}
 }
@@ -39,6 +39,12 @@ func mysqlInfoLogs(zipfIP ArgGenerator) []MessageTemplate {
 		{
 			Severity: plog.SeverityNumberInfo,
 			Format:   "%s %d [Note] [MY-%s] [Server] %s: ready for connections. Version: '8.0.36' socket: '/var/run/mysqld/mysqld.sock' port: 3306",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, hostname},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberInfo,
+			Format:   "%s %d [Note] [MY-%s] [Server] %s: ready",
 			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, hostname},
 			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
 		},
@@ -64,7 +70,7 @@ func mysqlInfoLogs(zipfIP ArgGenerator) []MessageTemplate {
 	}
 }
 
-func mysqlDebugLogs() []MessageTemplate {
+func mysqlDebugLogs(rng *rand.Rand) []MessageTemplate {
 	tsLayout := "2006-01-02 15:04:05.000000"
 	threadID := RandomInt(1, 100)
 	code := RandomFrom("010901", "010907")
@@ -84,10 +90,17 @@ func mysqlDebugLogs() []MessageTemplate {
 			AttrFromArg: map[string]int{"db.name": 3},
 			Attrs:       map[string]ArgGenerator{"db.system": Static("mysql")},
 		},
+		{
+			Severity: plog.SeverityNumberDebug,
+			Format:   "%s %d [Note] [MY-%s] [Server] EXPLAIN for query on %s.%s:\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, db, table, SQLExplainPlan(600, 2500, rng)},
+			AttrFromArg: map[string]int{"db.name": 3},
+			Attrs:       map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
 	}
 }
 
-func mysqlWarnLogs(zipfIP ArgGenerator) []MessageTemplate {
+func mysqlWarnLogs(zipfIP ArgGenerator, rng *rand.Rand) []MessageTemplate {
 	tsLayout := "2006-01-02 15:04:05.000000"
 	threadID := RandomInt(1, 100)
 	connID := RandomInt(1000, 99999)
@@ -145,6 +158,18 @@ func mysqlWarnLogs(zipfIP ArgGenerator) []MessageTemplate {
 			Attrs:       map[string]ArgGenerator{"db.system": Static("mysql")},
 		},
 		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%s %d [ERROR] [MY-%s] [InnoDB] LATEST DETECTED DEADLOCK\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, MySQLCrashTrace(500, 2500, rng)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberError,
+			Format:   "%s %d [ERROR] [MY-%s] [InnoDB] Cannot allocate memory for the buffer pool\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, MySQLCrashTrace(600, 3000, rng)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%s %d [ERROR] [MY-%s] [InnoDB] LATEST DETECTED DEADLOCK",
 			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code},
@@ -154,6 +179,24 @@ func mysqlWarnLogs(zipfIP ArgGenerator) []MessageTemplate {
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%s %d [ERROR] [MY-%s] [Server] Out of memory; check if mysqld or some other process uses all available memory",
 			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%s %d [ERROR] [MY-%s] [InnoDB] LATEST DETECTED DEADLOCK\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, MySQLCrashTrace(800, 4500, rng)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%s %d [ERROR] [MY-%s] [Server] Out of memory\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, MySQLCrashTrace(1000, 5000, rng)},
+			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
+		},
+		{
+			Severity: plog.SeverityNumberFatal,
+			Format:   "%s %d [ERROR] [MY-%s] [InnoDB] Assertion failure in thread %d\n%s",
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, osThreadID, MySQLCrashTrace(700, 4000, rng)},
 			Attrs:    map[string]ArgGenerator{"db.system": Static("mysql")},
 		},
 	}

@@ -73,7 +73,7 @@ type ArgGenerator func(rng *rand.Rand, ctx *GenContext) any
 
 // GenerateLogRecord picks a message template by severity, fills placeholders,
 // and returns the log body, severity, and record-level attributes.
-func GenerateLogRecord(rng *rand.Rand, profile AppProfile, timestamp time.Time) (body string, severity plog.SeverityNumber, attrs map[string]string) {
+func GenerateLogRecord(rng *rand.Rand, profile AppProfile, timestamp time.Time) (body string, severity plog.SeverityNumber, attrs map[string]any) {
 	ctx := &GenContext{Timestamp: timestamp}
 	sev := pickSeverityFromWeights(rng, profile.SeverityWeights)
 	msgs := filterMessagesBySeverity(profile.Messages, sev)
@@ -101,26 +101,22 @@ func GenerateLogRecord(rng *rand.Rand, profile AppProfile, timestamp time.Time) 
 	body = fmt.Sprintf(tmpl.Format, args...)
 	attrs = nil
 	if len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 {
-		attrs = make(map[string]string)
+		attrs = make(map[string]any)
 		for k, idx := range tmpl.AttrFromArg {
 			if idx >= 0 && idx < len(args) {
-				attrs[k] = fmt.Sprintf("%v", args[idx])
+				v := args[idx]
+				if tpl, ok := RouteTemplate(v); ok {
+					attrs[k] = tpl
+				} else {
+					attrs[k] = v
+				}
 			}
 		}
 		for k, gen := range tmpl.Attrs {
 			if _, ok := attrs[k]; ok {
 				continue
 			}
-			switch v := gen(rng, ctx).(type) {
-			case string:
-				attrs[k] = v
-			case int:
-				attrs[k] = fmt.Sprintf("%d", v)
-			case int64:
-				attrs[k] = fmt.Sprintf("%d", v)
-			default:
-				attrs[k] = fmt.Sprintf("%v", v)
-			}
+			attrs[k] = gen(rng, ctx)
 		}
 	}
 	return body, tmpl.Severity, attrs
@@ -191,7 +187,7 @@ func (pp *PreparedProfile) OverrideSeverityWeights(w [6]int) {
 }
 
 // GenerateFromPrepared generates a log record using pre-bucketed messages.
-func GenerateFromPrepared(rng *rand.Rand, pp *PreparedProfile, timestamp time.Time) (body string, severity plog.SeverityNumber, attrs map[string]string) {
+func GenerateFromPrepared(rng *rand.Rand, pp *PreparedProfile, timestamp time.Time) (body string, severity plog.SeverityNumber, attrs map[string]any) {
 	ctx := &GenContext{Timestamp: timestamp}
 	sev := pickSeverityFromWeights(rng, pp.profile.SeverityWeights)
 	msgs := pp.bySeverity[sev]
@@ -213,26 +209,22 @@ func GenerateFromPrepared(rng *rand.Rand, pp *PreparedProfile, timestamp time.Ti
 	body = fmt.Sprintf(tmpl.Format, args...)
 	attrs = nil
 	if len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 {
-		attrs = make(map[string]string)
+		attrs = make(map[string]any)
 		for k, idx := range tmpl.AttrFromArg {
 			if idx >= 0 && idx < len(args) {
-				attrs[k] = fmt.Sprintf("%v", args[idx])
+				v := args[idx]
+				if tpl, ok := RouteTemplate(v); ok {
+					attrs[k] = tpl
+				} else {
+					attrs[k] = v
+				}
 			}
 		}
 		for k, gen := range tmpl.Attrs {
 			if _, ok := attrs[k]; ok {
 				continue
 			}
-			switch v := gen(rng, ctx).(type) {
-			case string:
-				attrs[k] = v
-			case int:
-				attrs[k] = fmt.Sprintf("%d", v)
-			case int64:
-				attrs[k] = fmt.Sprintf("%d", v)
-			default:
-				attrs[k] = fmt.Sprintf("%v", v)
-			}
+			attrs[k] = gen(rng, ctx)
 		}
 	}
 	return body, tmpl.Severity, attrs
@@ -240,7 +232,7 @@ func GenerateFromPrepared(rng *rand.Rand, pp *PreparedProfile, timestamp time.Ti
 
 // GenerateFromPreparedInto generates a log record into a reusable attrs map to avoid allocations.
 // attrsOut must be non-nil; it is cleared and reused.
-func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp time.Time, attrsOut map[string]string) (body string, severity plog.SeverityNumber) {
+func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp time.Time, attrsOut map[string]any) (body string, severity plog.SeverityNumber) {
 	for k := range attrsOut {
 		delete(attrsOut, k)
 	}
@@ -266,23 +258,19 @@ func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp tim
 	if len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 {
 		for k, idx := range tmpl.AttrFromArg {
 			if idx >= 0 && idx < len(args) {
-				attrsOut[k] = fmt.Sprintf("%v", args[idx])
+				v := args[idx]
+				if tpl, ok := RouteTemplate(v); ok {
+					attrsOut[k] = tpl
+				} else {
+					attrsOut[k] = v
+				}
 			}
 		}
 		for k, gen := range tmpl.Attrs {
 			if _, ok := attrsOut[k]; ok {
 				continue
 			}
-			switch v := gen(rng, ctx).(type) {
-			case string:
-				attrsOut[k] = v
-			case int:
-				attrsOut[k] = fmt.Sprintf("%d", v)
-			case int64:
-				attrsOut[k] = fmt.Sprintf("%d", v)
-			default:
-				attrsOut[k] = fmt.Sprintf("%v", v)
-			}
+			attrsOut[k] = gen(rng, ctx)
 		}
 	}
 	return body, tmpl.Severity
@@ -290,8 +278,25 @@ func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp tim
 
 // --- ArgGenerator helpers ---
 
+// RandomIP generates uniform random IPs across the full IPv4 space.
+// Deprecated: prefer ZipfianIP for realistic workloads with a finite IP pool.
 var RandomIP ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
 	return net.IPv4(byte(rng.Intn(256)), byte(rng.Intn(256)), byte(rng.Intn(256)), byte(rng.Intn(256))).String()
+}
+
+// ZipfianIP returns an ArgGenerator that selects from a pre-generated pool of IPs
+// using a Zipfian (power-law) distribution. The pool is built from 10.0.0.0/8
+// deterministically using the provided rng. poolSize controls how many IPs are in the pool.
+func ZipfianIP(poolSize int, rng *rand.Rand) ArgGenerator {
+	pool := make([]string, poolSize)
+	for i := 0; i < poolSize; i++ {
+		// 10.0.0.0/8: first octet 10, remaining 24 bits random
+		pool[i] = net.IPv4(10, byte(rng.Intn(256)), byte(rng.Intn(256)), byte(rng.Intn(256))).String()
+	}
+	return func(r *rand.Rand, _ *GenContext) any {
+		zipf := rand.NewZipf(r, 1.5, 1, uint64(poolSize-1))
+		return pool[zipf.Uint64()]
+	}
 }
 
 func RandomPath(paths []string) ArgGenerator {
@@ -305,6 +310,35 @@ func RandomPathWithSuffix(bases []string, suffixGen ArgGenerator) ArgGenerator {
 		suffix := suffixGen(r, ctx)
 		return base + fmt.Sprintf("%v", suffix)
 	}
+}
+
+// routeWithTemplate holds a full URL for the log body and the route template for http.url attribute.
+// Implements fmt.Stringer to render the body when used in format strings.
+type routeWithTemplate struct {
+	body    string
+	template string
+}
+
+func (r routeWithTemplate) String() string { return r.body }
+
+// RouteWithRandomID returns an ArgGenerator that picks a route template, substitutes {id}
+// with a random ID for the body, and returns routeWithTemplate so AttrFromArg for http.url
+// can extract the low-cardinality template. Templates use {id} as placeholder.
+func RouteWithRandomID(templates []string) ArgGenerator {
+	return func(r *rand.Rand, ctx *GenContext) any {
+		tpl := templates[r.Intn(len(templates))]
+		id := RandomID(8)(r, ctx).(string)
+		body := strings.ReplaceAll(tpl, "{id}", id)
+		return routeWithTemplate{body: body, template: tpl}
+	}
+}
+
+// RouteTemplate extracts the template from routeWithTemplate for attr storage.
+func RouteTemplate(v any) (string, bool) {
+	if r, ok := v.(routeWithTemplate); ok {
+		return r.template, true
+	}
+	return "", false
 }
 
 func Static(s string) ArgGenerator {

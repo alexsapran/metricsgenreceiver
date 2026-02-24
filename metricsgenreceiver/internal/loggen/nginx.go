@@ -1,6 +1,8 @@
 package loggen
 
 import (
+	"math/rand"
+
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
@@ -8,25 +10,62 @@ var nginxPaths = []string{
 	"/api/v1/orders", "/health", "/api/v1/products", "/", "/api/v1/health", "/metrics", "/favicon.ico",
 }
 
-func NginxProfile() *AppProfile {
+// nginxRouteTemplates are parameterized routes for http.url (low cardinality).
+// Use {id} placeholder; RouteWithRandomID substitutes it for the log body.
+var nginxRouteTemplates = []string{
+	"/api/v1/users/{id}",
+	"/api/v1/users/{id}/profile",
+	"/api/v1/orders/{id}",
+	"/api/v1/orders/{id}/items",
+	"/api/v1/orders/{id}/status",
+	"/api/v2/search",
+	"/api/v1/products/{id}",
+	"/api/v1/products/{id}/reviews",
+	"/api/v1/cart/{id}",
+	"/api/v1/checkout",
+	"/api/v2/analytics",
+	"/api/v1/config",
+	"/api/v1/notifications/{id}",
+	"/api/v2/users/{id}",
+	"/api/v1/sessions/{id}",
+	"/api/v1/payments/{id}",
+	"/api/v1/invoices/{id}",
+	"/api/v2/orders/{id}",
+	"/api/v1/shipping/{id}",
+	"/api/v1/reviews/{id}",
+	"/api/v2/products/{id}",
+	"/api/v1/categories/{id}",
+	"/api/v1/tags/{id}",
+	"/api/v2/recommendations",
+	"/api/v1/export",
+	"/api/v1/import",
+	"/api/v2/metrics",
+}
+
+func NginxProfile(rng *rand.Rand) *AppProfile {
+	if rng == nil {
+		rng = rand.New(rand.NewSource(0))
+	}
 	return &AppProfile{
 		Name:            "nginx",
 		ScopeName:       "io.opentelemetry.nginx",
 		SeverityWeights: DefaultSeverityWeights(),
 		Messages: append(
-			append(nginxAccessLogs(), nginxDebugLogs()...),
-			nginxWarnLogs()...,
+			append(nginxAccessLogs(rng), nginxDebugLogs()...),
+			nginxWarnLogs(rng)...,
 		),
 	}
 }
 
-func nginxAccessLogs() []MessageTemplate {
+func nginxAccessLogs(rng *rand.Rand) []MessageTemplate {
 	tsLayout := "02/Jan/2006:15:04:05 -0700"
+	zipfIP := ZipfianIP(5000, rng)
+	routeGen := RouteWithRandomID(nginxRouteTemplates)
 	return []MessageTemplate{
 		{
 			Severity:     plog.SeverityNumberInfo,
 			Format:       "%s - - [%s] \"GET %s HTTP/1.1\" %d %d \"-\" \"%s\"",
-			Args:         []ArgGenerator{RandomIP, Timestamp(tsLayout), RandomPathWithSuffix([]string{"/api/v1/users/"}, RandomID(8)), RandomHTTPStatus, RandomBytes, RandomUserAgent},
+			Args:         []ArgGenerator{zipfIP, Timestamp(tsLayout), routeGen, RandomHTTPStatus, RandomBytes, RandomUserAgent},
 			AttrFromArg:  map[string]int{"net.peer.ip": 0, "http.status_code": 3, "http.url": 2},
 			Attrs:        map[string]ArgGenerator{"http.method": HTTPMethod("GET")},
 		},
@@ -34,7 +73,7 @@ func nginxAccessLogs() []MessageTemplate {
 			Severity: plog.SeverityNumberInfo,
 			Format:   "%s - - [%s] \"POST %s HTTP/1.1\" %d %d \"%s\" \"%s\"",
 			Args: []ArgGenerator{
-				RandomIP, Timestamp(tsLayout),
+				zipfIP, Timestamp(tsLayout),
 				RandomPath([]string{"/api/v1/orders", "/api/v1/users", "/api/v1/products"}),
 				RandomHTTPStatus, RandomBytes,
 				RandomFrom("-", "https://example.com/", "https://app.example.com/dashboard"),
@@ -46,21 +85,21 @@ func nginxAccessLogs() []MessageTemplate {
 		{
 			Severity:     plog.SeverityNumberInfo,
 			Format:       "%s - - [%s] \"GET /health HTTP/1.1\" 200 15 \"-\" \"kube-probe/1.28\"",
-			Args:         []ArgGenerator{RandomIP, Timestamp(tsLayout)},
+			Args:         []ArgGenerator{zipfIP, Timestamp(tsLayout)},
 			AttrFromArg:  map[string]int{"net.peer.ip": 0},
 			Attrs:        map[string]ArgGenerator{"http.method": HTTPMethod("GET"), "http.status_code": HTTPStatus(200), "http.url": Static("/health")},
 		},
 		{
 			Severity:    plog.SeverityNumberInfo,
 			Format:      "%s - - [%s] \"GET /static/js/app.%s.js HTTP/1.1\" 304 0 \"%s\" \"%s\"",
-			Args:        []ArgGenerator{RandomIP, Timestamp(tsLayout), RandomID(8), RandomFrom("-", "https://app.example.com/"), RandomUserAgent},
+			Args:        []ArgGenerator{zipfIP, Timestamp(tsLayout), RandomID(8), RandomFrom("-", "https://app.example.com/"), RandomUserAgent},
 			AttrFromArg: map[string]int{"net.peer.ip": 0},
 			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("GET"), "http.status_code": HTTPStatus(304), "http.url": Static("/static/js/app.js")},
 		},
 		{
 			Severity:    plog.SeverityNumberInfo,
 			Format:      "%s - - [%s] \"GET /api/v1/products?page=%d&limit=20 HTTP/1.1\" 200 %d \"-\" \"%s\"",
-			Args:        []ArgGenerator{RandomIP, Timestamp(tsLayout), RandomInt(1, 50), RandomBytes, RandomUserAgent},
+			Args:        []ArgGenerator{zipfIP, Timestamp(tsLayout), RandomInt(1, 50), RandomBytes, RandomUserAgent},
 			AttrFromArg: map[string]int{"net.peer.ip": 0, "http.status_code": 3},
 			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("GET"), "http.url": Static("/api/v1/products")},
 		},
@@ -68,7 +107,7 @@ func nginxAccessLogs() []MessageTemplate {
 			Severity: plog.SeverityNumberInfo,
 			Format:   "%s - - [%s] \"GET %s HTTP/1.1\" %d %d \"-\" \"%s\"",
 			Args: []ArgGenerator{
-				RandomIP, Timestamp(tsLayout),
+				zipfIP, Timestamp(tsLayout),
 				RandomPath([]string{"/", "/api/v1/health", "/metrics", "/favicon.ico", "/api/v1/config"}),
 				RandomHTTPStatus, RandomBytes, RandomUserAgent,
 			},
@@ -78,9 +117,9 @@ func nginxAccessLogs() []MessageTemplate {
 		{
 			Severity:    plog.SeverityNumberInfo,
 			Format:      "%s - - [%s] \"DELETE /api/v1/users/%s HTTP/1.1\" %d %d \"-\" \"%s\"",
-			Args:        []ArgGenerator{RandomIP, Timestamp(tsLayout), RandomID(8), RandomFromInt(200, 204, 404), RandomBytes, RandomUserAgent},
+			Args:        []ArgGenerator{zipfIP, Timestamp(tsLayout), RandomID(8), RandomFromInt(200, 204, 404), RandomBytes, RandomUserAgent},
 			AttrFromArg: map[string]int{"net.peer.ip": 0, "http.status_code": 3},
-			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("DELETE"), "http.url": Static("/api/v1/users")},
+			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("DELETE"), "http.url": Static("/api/v1/users/{id}")},
 		},
 	}
 }
@@ -104,12 +143,13 @@ func nginxDebugLogs() []MessageTemplate {
 	}
 }
 
-func nginxWarnLogs() []MessageTemplate {
+func nginxWarnLogs(rng *rand.Rand) []MessageTemplate {
 	tsLayout := "2006/01/02 15:04:05"
 	pid := RandomInt(1, 99999)
 	tid := RandomInt(0, 1)
 	connID := RandomInt(1000, 99999)
-	upstreamIP := RandomIP
+	zipfIP := ZipfianIP(5000, rng)
+	upstreamIP := zipfIP
 	port := RandomInt(8080, 9090)
 	path := RandomPath([]string{"/api/v1/users", "/api/v1/orders", "/health"})
 	server := RandomFrom("localhost", "_", "api.example.com")
@@ -120,34 +160,34 @@ func nginxWarnLogs() []MessageTemplate {
 			Format:   "%s [warn] %d#%d: *%d upstream server temporarily disabled while connecting to upstream, client: %s, server: %s, request: \"GET %s HTTP/1.1\", upstream: \"http://%s:%d%s\"",
 			Args: []ArgGenerator{
 				Timestamp(tsLayout), pid, tid, connID,
-				RandomIP, server, path,
+				zipfIP, server, path,
 				upstreamIP, port, path,
 			},
 		},
 		{
 			Severity: plog.SeverityNumberWarn,
 			Format:   "%s [warn] %d#%d: *%d an upstream response is buffered to a temporary file %s, client: %s, server: %s",
-			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, tmpfile, RandomIP, server},
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, tmpfile, zipfIP, server},
 		},
 		{
 			Severity: plog.SeverityNumberWarn,
 			Format:   "%s [warn] %d#%d: *%d upstream timed out, client: %s, server: %s",
-			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, RandomIP, server},
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server},
 		},
 		{
 			Severity: plog.SeverityNumberError,
 			Format:   "%s [error] %d#%d: *%d connect() failed (111: Connection refused) while connecting to upstream, client: %s, server: %s, request: \"GET %s HTTP/1.1\", upstream: \"http://%s:%d%s\"",
-			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, RandomIP, server, path, upstreamIP, port, path},
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server, path, upstreamIP, port, path},
 		},
 		{
 			Severity: plog.SeverityNumberError,
 			Format:   "%s [error] %d#%d: *%d upstream timed out (110: Connection timed out) while reading response header from upstream, client: %s, server: %s, request: \"POST %s HTTP/1.1\"",
-			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, RandomIP, server, path},
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server, path},
 		},
 		{
 			Severity: plog.SeverityNumberError,
 			Format:   "%s [error] %d#%d: *%d no live upstreams while connecting to upstream, client: %s, server: %s",
-			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, RandomIP, server},
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server},
 		},
 		{
 			Severity: plog.SeverityNumberFatal,

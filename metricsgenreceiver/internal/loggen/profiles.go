@@ -1,21 +1,26 @@
 package loggen
 
 import (
+	"math/rand"
 	"strings"
 
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
 // GetAppProfile returns the AppProfile for the given scenario path, or nil if unknown.
-func GetAppProfile(path string) *AppProfile {
+// rng is used for deterministic pool generation (e.g. ZipfianIP); pass nil to use a default seed.
+func GetAppProfile(path string, rng *rand.Rand) *AppProfile {
+	if rng == nil {
+		rng = rand.New(rand.NewSource(0))
+	}
 	path = strings.TrimPrefix(path, "builtin/")
 	switch path {
 	case "k8s-nginx":
-		return NginxProfile()
+		return NginxProfile(rng)
 	case "k8s-mysql":
-		return MySQLProfile()
+		return MySQLProfile(rng)
 	case "k8s-redis":
-		return RedisProfile()
+		return RedisProfile(rng)
 	case "k8s-goapp":
 		return GoAppProfile()
 	default:

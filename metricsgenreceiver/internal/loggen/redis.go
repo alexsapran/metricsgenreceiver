@@ -1,25 +1,31 @@
 package loggen
 
 import (
+	"math/rand"
+
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
 var redisVersions = []string{"7.2.4", "7.0.12", "6.2.6"}
 var redisEvictionPolicies = []string{"allkeys-lru", "volatile-lru", "noeviction"}
 
-func RedisProfile() *AppProfile {
+func RedisProfile(rng *rand.Rand) *AppProfile {
+	if rng == nil {
+		rng = rand.New(rand.NewSource(0))
+	}
+	zipfIP := ZipfianIP(5000, rng)
 	return &AppProfile{
 		Name:            "redis",
 		ScopeName:       "io.opentelemetry.redis",
 		SeverityWeights: DefaultSeverityWeights(),
 		Messages: append(
-			append(redisInfoLogs(), redisDebugLogs()...),
+			append(redisInfoLogs(zipfIP), redisDebugLogs(zipfIP)...),
 			redisWarnLogs()...,
 		),
 	}
 }
 
-func redisInfoLogs() []MessageTemplate {
+func redisInfoLogs(zipfIP ArgGenerator) []MessageTemplate {
 	tsLayout := "02 Jan 2006 15:04:05.000"
 	pid := RandomInt(1, 99999)
 	role := RandomFrom("M", "S", "C")
@@ -63,13 +69,13 @@ func redisInfoLogs() []MessageTemplate {
 		{
 			Severity: plog.SeverityNumberInfo,
 			Format:   "%d:%s %s # Connection accepted from %s:%d",
-			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomIP, RandomInt(40000, 65000)},
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), zipfIP, RandomInt(40000, 65000)},
 			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
 		},
 	}
 }
 
-func redisDebugLogs() []MessageTemplate {
+func redisDebugLogs(zipfIP ArgGenerator) []MessageTemplate {
 	tsLayout := "02 Jan 2006 15:04:05.000"
 	pid := RandomInt(1, 99999)
 	role := RandomFrom("M", "S", "C")
@@ -77,7 +83,7 @@ func redisDebugLogs() []MessageTemplate {
 		{
 			Severity: plog.SeverityNumberDebug,
 			Format:   "%d:%s %s - Accepted %s:%d -> %s:%d",
-			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomIP, RandomInt(40000, 65000), RandomFrom("127.0.0.1", "10.0.0.1"), RandomInt(6379, 6381)},
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), zipfIP, RandomInt(40000, 65000), RandomFrom("127.0.0.1", "10.0.0.1"), RandomInt(6379, 6381)},
 			Attrs:    map[string]ArgGenerator{"db.system": Static("redis")},
 		},
 		{

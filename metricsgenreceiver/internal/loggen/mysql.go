@@ -1,6 +1,8 @@
 package loggen
 
 import (
+	"math/rand"
+
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
@@ -9,19 +11,23 @@ var mysqlUsers = []string{"app_user", "replicator", "admin", "root", "migration"
 var mysqlTables = []string{"users", "orders", "products", "sessions", "audit_log"}
 var mysqlColumns = []string{"id", "user_id", "email", "status", "created_at"}
 
-func MySQLProfile() *AppProfile {
+func MySQLProfile(rng *rand.Rand) *AppProfile {
+	if rng == nil {
+		rng = rand.New(rand.NewSource(0))
+	}
+	zipfIP := ZipfianIP(5000, rng)
 	return &AppProfile{
 		Name:            "mysql",
 		ScopeName:       "io.opentelemetry.mysql",
 		SeverityWeights: DefaultSeverityWeights(),
 		Messages: append(
-			append(mysqlInfoLogs(), mysqlDebugLogs()...),
-			mysqlWarnLogs()...,
+			append(mysqlInfoLogs(zipfIP), mysqlDebugLogs()...),
+			mysqlWarnLogs(zipfIP)...,
 		),
 	}
 }
 
-func mysqlInfoLogs() []MessageTemplate {
+func mysqlInfoLogs(zipfIP ArgGenerator) []MessageTemplate {
 	tsLayout := "2006-01-02 15:04:05.000000"
 	threadID := RandomInt(1, 100)
 	connID := RandomInt(1000, 99999)
@@ -45,7 +51,7 @@ func mysqlInfoLogs() []MessageTemplate {
 		{
 			Severity: plog.SeverityNumberInfo,
 			Format:   "%s %d [Note] [MY-%s] [Server] Aborted connection %d to db: '%s' user: '%s' host: '%s' (Got timeout reading communication packets)",
-			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, connID, db, user, RandomIP},
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, connID, db, user, zipfIP},
 			AttrFromArg: map[string]int{"db.name": 4},
 			Attrs:       map[string]ArgGenerator{"db.system": Static("mysql"), "db.user": user},
 		},
@@ -81,7 +87,7 @@ func mysqlDebugLogs() []MessageTemplate {
 	}
 }
 
-func mysqlWarnLogs() []MessageTemplate {
+func mysqlWarnLogs(zipfIP ArgGenerator) []MessageTemplate {
 	tsLayout := "2006-01-02 15:04:05.000000"
 	threadID := RandomInt(1, 100)
 	connID := RandomInt(1000, 99999)
@@ -96,7 +102,7 @@ func mysqlWarnLogs() []MessageTemplate {
 		{
 			Severity: plog.SeverityNumberWarn,
 			Format:   "%s %d [Warning] [MY-%s] [Server] Aborted connection %d to db: '%s' user: '%s' host: '%s' (Got an error reading communication packets)",
-			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, connID, db, user, RandomIP},
+			Args:     []ArgGenerator{Timestamp(tsLayout), threadID, code, connID, db, user, zipfIP},
 			AttrFromArg: map[string]int{"db.name": 4},
 			Attrs:       map[string]ArgGenerator{"db.system": Static("mysql"), "db.user": user},
 		},

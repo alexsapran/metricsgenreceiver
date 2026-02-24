@@ -3,6 +3,7 @@ package metricsgenreceiver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"math/rand"
 	"sync"
@@ -120,7 +121,7 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 		if err != nil {
 			return nil, err
 		}
-		profile := loggen.GetAppProfile(scn.Path)
+		profile := loggen.GetAppProfile(scn.Path, baseRand)
 		if profile == nil {
 			serviceName := "unknown"
 			if len(resources) > 0 {
@@ -313,7 +314,7 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 	sl := rl.ScopeLogs().AppendEmpty()
 	sl.Scope().SetName(scn.prepared.GetScopeName())
 
-	reusableAttrs := make(map[string]string, 8)
+	reusableAttrs := make(map[string]any, 8)
 	for i := 0; i < logsPerInterval; i++ {
 		lr := sl.LogRecords().AppendEmpty()
 		instanceTime := addLogJitter(currentTime, r.cfg.IntervalJitterStdDev, r.cfg.Interval, rng)
@@ -325,7 +326,16 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 		lr.Body().SetStr(body)
 
 		for k, v := range reusableAttrs {
-			lr.Attributes().PutStr(k, v)
+			switch val := v.(type) {
+			case int:
+				lr.Attributes().PutInt(k, int64(val))
+			case int64:
+				lr.Attributes().PutInt(k, val)
+			case string:
+				lr.Attributes().PutStr(k, val)
+			default:
+				lr.Attributes().PutStr(k, fmt.Sprintf("%v", v))
+			}
 		}
 
 		// Deterministic needle injection: check each needle (always call rng.Float64 for determinism)

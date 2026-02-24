@@ -121,7 +121,14 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 		if err != nil {
 			return nil, err
 		}
-		profile := loggen.GetAppProfile(scn.Path, baseRand)
+		var ipCfg *loggen.IPPoolConfig
+		if scn.IPPool != nil {
+			ipCfg = &loggen.IPPoolConfig{
+				CIDRs:    scn.IPPool.CIDRs,
+				ZipfSkew: scn.IPPool.ZipfSkew,
+			}
+		}
+		profile := loggen.GetAppProfile(scn.Path, baseRand, ipCfg, scn.Scale)
 		if profile == nil {
 			serviceName := "unknown"
 			if len(resources) > 0 {

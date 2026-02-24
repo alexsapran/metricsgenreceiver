@@ -11,11 +11,11 @@ var mysqlUsers = []string{"app_user", "replicator", "admin", "root", "migration"
 var mysqlTables = []string{"users", "orders", "products", "sessions", "audit_log"}
 var mysqlColumns = []string{"id", "user_id", "email", "status", "created_at"}
 
-func MySQLProfile(rng *rand.Rand) *AppProfile {
+func MySQLProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	if rng == nil {
 		rng = rand.New(rand.NewSource(0))
 	}
-	zipfIP := ZipfianIP(5000, rng)
+	zipfIP := ZipfianIP(5000, rng, ipCfg)
 	return &AppProfile{
 		Name:            "mysql",
 		ScopeName:       "io.opentelemetry.mysql",

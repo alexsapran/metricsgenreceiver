@@ -2,6 +2,7 @@ package metricsgenreceiver
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -51,6 +52,19 @@ type LogScenarioCfg struct {
 	// e.g. [0, 2, 87, 94, 99, 100] = 0% TRACE, 2% DEBUG, 85% INFO, 7% WARN, 5% ERROR, 1% FATAL.
 	// If nil or all zeros, the profile default is used.
 	SeverityWeights *[6]int `mapstructure:"severity_weights"`
+	// IPPool configures the IP address pool used for generating net.peer.ip and similar fields.
+	// When nil, defaults are used: CIDRs=["10.0.0.0/8"], pool size=scale*10, zipf_skew=1.5.
+	IPPool *IPPoolCfg `mapstructure:"ip_pool"`
+}
+
+type IPPoolCfg struct {
+	// CIDRs to draw IPs from. Each must be a valid IPv4 CIDR.
+	// Default: ["10.0.0.0/8"]
+	CIDRs []string `mapstructure:"cidrs"`
+	// ZipfSkew controls the Zipf distribution skew (s parameter).
+	// Higher values make fewer IPs dominate traffic. Must be > 1.0.
+	// Default: 1.5
+	ZipfSkew float64 `mapstructure:"zipf_skew"`
 }
 
 type VolumeProfileCfg struct {
@@ -158,6 +172,9 @@ func (cfg *Config) Validate() error {
 		if err := validateSeverityWeights(scn.SeverityWeights); err != nil {
 			return fmt.Errorf("log_scenarios: %w", err)
 		}
+		if err := validateIPPool(scn.IPPool); err != nil {
+			return fmt.Errorf("log_scenarios: %w", err)
+		}
 	}
 	return nil
 }
@@ -178,6 +195,22 @@ func validateSeverityWeights(sw *[6]int) error {
 	}
 	if sw[5] != 100 {
 		return fmt.Errorf("severity_weights: last value must be 100 (got %d)", sw[5])
+	}
+	return nil
+}
+
+func validateIPPool(ip *IPPoolCfg) error {
+	if ip == nil {
+		return nil
+	}
+	for _, cidr := range ip.CIDRs {
+		_, _, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return fmt.Errorf("ip_pool: invalid CIDR %q: %w", cidr, err)
+		}
+	}
+	if ip.ZipfSkew != 0 && ip.ZipfSkew <= 1.0 {
+		return fmt.Errorf("ip_pool: zipf_skew must be > 1.0 (got %f)", ip.ZipfSkew)
 	}
 	return nil
 }

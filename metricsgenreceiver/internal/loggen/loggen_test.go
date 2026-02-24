@@ -15,9 +15,9 @@ func TestAllProfiles(t *testing.T) {
 		name    string
 		profile *AppProfile
 	}{
-		{"nginx", NginxProfile(nil)},
-		{"mysql", MySQLProfile(nil)},
-		{"redis", RedisProfile(nil)},
+		{"nginx", NginxProfile(nil, nil)},
+		{"mysql", MySQLProfile(nil, nil)},
+		{"redis", RedisProfile(nil, nil)},
 		{"goapp", GoAppProfile()},
 	}
 	rng := rand.New(rand.NewSource(42))
@@ -36,7 +36,7 @@ func TestAllProfiles(t *testing.T) {
 }
 
 func TestGenerateLogRecord_Deterministic(t *testing.T) {
-	profile := *NginxProfile(nil)
+	profile := *NginxProfile(nil, nil)
 	ts := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	rng1 := rand.New(rand.NewSource(42))
@@ -53,7 +53,7 @@ func TestGenerateLogRecord_Deterministic(t *testing.T) {
 }
 
 func TestSeverityDistribution(t *testing.T) {
-	profile := *NginxProfile(nil)
+	profile := *NginxProfile(nil, nil)
 	ts := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 	rng := rand.New(rand.NewSource(999))
 

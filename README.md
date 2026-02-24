@@ -169,6 +169,24 @@ receivers:
     severity_weights: [0, 0, 50, 65, 90, 100]
     # TRACE 0%, DEBUG 0%, INFO 50%, WARN 15%, ERROR 25%, FATAL 10%
     ```
+  * `ip_pool`: optional block that configures the IP address pool used for generating `net.peer.ip` and similar attributes.
+    When omitted, IPs are drawn from `10.0.0.0/8` with a Zipf skew of `1.5` and a pool size of `scale * 10` (minimum 500).
+    The pool is pre-generated deterministically from the seed, so results are reproducible.
+    * `cidrs`: list of IPv4 CIDR ranges to draw IPs from. Default: `["10.0.0.0/8"]`.
+      Multiple CIDRs can be specified to simulate traffic from different subnets.
+    * `zipf_skew`: the Zipf distribution `s` parameter (must be > 1.0). Default: `1.5`.
+      Higher values make fewer IPs dominate traffic (e.g. `2.0` creates a steeper long-tail).
+      Lower values (closer to `1.0`) spread traffic more evenly across the pool.
+
+    The pool size is automatically derived from `scale * 10`, so it scales with your topology.
+    For example, `scale: 30` produces ~300 IPs; `scale: 1500` produces ~15,000 IPs.
+
+    Example — multi-subnet with high skew:
+    ```yaml
+    ip_pool:
+      cidrs: ["10.0.0.0/16", "172.16.0.0/12"]
+      zipf_skew: 2.0
+    ```
   * `needles`: optional list of needle configurations for injecting specific log messages at a given rate (useful for testing alerting).
     * `name`: unique identifier for the needle.
     * `message`: the log body to inject.

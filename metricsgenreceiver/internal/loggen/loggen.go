@@ -284,17 +284,66 @@ var RandomIP ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
 	return net.IPv4(byte(rng.Intn(256)), byte(rng.Intn(256)), byte(rng.Intn(256)), byte(rng.Intn(256))).String()
 }
 
+// IPPoolConfig holds optional IP pool configuration for ZipfianIP.
+type IPPoolConfig struct {
+	CIDRs    []string // CIDR ranges to draw IPs from (default: ["10.0.0.0/8"])
+	PoolSize int      // number of IPs in the pool (default: scale * 10, minimum 500)
+	ZipfSkew float64  // Zipf s parameter (default: 1.5); higher = more skewed
+}
+
 // ZipfianIP returns an ArgGenerator that selects from a pre-generated pool of IPs
-// using a Zipfian (power-law) distribution. The pool is built from 10.0.0.0/8
-// deterministically using the provided rng. poolSize controls how many IPs are in the pool.
-func ZipfianIP(poolSize int, rng *rand.Rand) ArgGenerator {
+// using a Zipfian (power-law) distribution. The pool is built deterministically
+// from the configured CIDRs using the provided rng. If cfg is nil, defaults are used.
+func ZipfianIP(poolSize int, rng *rand.Rand, cfg *IPPoolConfig) ArgGenerator {
+	cidrs := []string{"10.0.0.0/8"}
+	skew := 1.5
+	if cfg != nil {
+		if len(cfg.CIDRs) > 0 {
+			cidrs = cfg.CIDRs
+		}
+		if cfg.ZipfSkew > 1.0 {
+			skew = cfg.ZipfSkew
+		}
+		if cfg.PoolSize > 0 {
+			poolSize = cfg.PoolSize
+		}
+	}
+	if poolSize < 1 {
+		poolSize = 500
+	}
+
+	type cidrRange struct {
+		base    uint32
+		hostMax uint32
+	}
+	ranges := make([]cidrRange, 0, len(cidrs))
+	for _, c := range cidrs {
+		_, ipNet, err := net.ParseCIDR(c)
+		if err != nil {
+			continue
+		}
+		ip4 := ipNet.IP.To4()
+		if ip4 == nil {
+			continue
+		}
+		mask := ipNet.Mask
+		base := uint32(ip4[0])<<24 | uint32(ip4[1])<<16 | uint32(ip4[2])<<8 | uint32(ip4[3])
+		inverseMask := ^(uint32(mask[0])<<24 | uint32(mask[1])<<16 | uint32(mask[2])<<8 | uint32(mask[3]))
+		ranges = append(ranges, cidrRange{base: base, hostMax: inverseMask})
+	}
+	if len(ranges) == 0 {
+		ranges = append(ranges, cidrRange{base: 0x0A000000, hostMax: 0x00FFFFFF}) // 10.0.0.0/8
+	}
+
 	pool := make([]string, poolSize)
 	for i := 0; i < poolSize; i++ {
-		// 10.0.0.0/8: first octet 10, remaining 24 bits random
-		pool[i] = net.IPv4(10, byte(rng.Intn(256)), byte(rng.Intn(256)), byte(rng.Intn(256))).String()
+		cr := ranges[rng.Intn(len(ranges))]
+		host := uint32(rng.Int63n(int64(cr.hostMax))) + 1
+		ip := cr.base | host
+		pool[i] = net.IPv4(byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip)).String()
 	}
 	return func(r *rand.Rand, _ *GenContext) any {
-		zipf := rand.NewZipf(r, 1.5, 1, uint64(poolSize-1))
+		zipf := rand.NewZipf(r, skew, 1, uint64(poolSize-1))
 		return pool[zipf.Uint64()]
 	}
 }

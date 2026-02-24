@@ -42,7 +42,7 @@ var nginxRouteTemplates = []string{
 	"/api/v2/metrics",
 }
 
-func NginxProfile(rng *rand.Rand) *AppProfile {
+func NginxProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	if rng == nil {
 		rng = rand.New(rand.NewSource(0))
 	}
@@ -51,15 +51,15 @@ func NginxProfile(rng *rand.Rand) *AppProfile {
 		ScopeName:       "io.opentelemetry.nginx",
 		SeverityWeights: DefaultSeverityWeights(),
 		Messages: append(
-			append(nginxAccessLogs(rng), nginxDebugLogs()...),
-			nginxWarnLogs(rng)...,
+			append(nginxAccessLogs(rng, ipCfg), nginxDebugLogs()...),
+			nginxWarnLogs(rng, ipCfg)...,
 		),
 	}
 }
 
-func nginxAccessLogs(rng *rand.Rand) []MessageTemplate {
+func nginxAccessLogs(rng *rand.Rand, ipCfg *IPPoolConfig) []MessageTemplate {
 	tsLayout := "02/Jan/2006:15:04:05 -0700"
-	zipfIP := ZipfianIP(5000, rng)
+	zipfIP := ZipfianIP(5000, rng, ipCfg)
 	routeGen := RouteWithRandomID(nginxRouteTemplates)
 	return []MessageTemplate{
 		{
@@ -143,12 +143,12 @@ func nginxDebugLogs() []MessageTemplate {
 	}
 }
 
-func nginxWarnLogs(rng *rand.Rand) []MessageTemplate {
+func nginxWarnLogs(rng *rand.Rand, ipCfg *IPPoolConfig) []MessageTemplate {
 	tsLayout := "2006/01/02 15:04:05"
 	pid := RandomInt(1, 99999)
 	tid := RandomInt(0, 1)
 	connID := RandomInt(1000, 99999)
-	zipfIP := ZipfianIP(5000, rng)
+	zipfIP := ZipfianIP(5000, rng, ipCfg)
 	upstreamIP := zipfIP
 	port := RandomInt(8080, 9090)
 	path := RandomPath([]string{"/api/v1/users", "/api/v1/orders", "/health"})

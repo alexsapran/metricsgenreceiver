@@ -9,11 +9,11 @@ import (
 var redisVersions = []string{"7.2.4", "7.0.12", "6.2.6"}
 var redisEvictionPolicies = []string{"allkeys-lru", "volatile-lru", "noeviction"}
 
-func RedisProfile(rng *rand.Rand) *AppProfile {
+func RedisProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	if rng == nil {
 		rng = rand.New(rand.NewSource(0))
 	}
-	zipfIP := ZipfianIP(5000, rng)
+	zipfIP := ZipfianIP(5000, rng, ipCfg)
 	return &AppProfile{
 		Name:            "redis",
 		ScopeName:       "io.opentelemetry.redis",

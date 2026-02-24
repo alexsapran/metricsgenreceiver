@@ -15,6 +15,10 @@ receivers:
         # severity_weights: [0, 2, 87, 94, 99, 100]  # optional override: [TRACE, DEBUG, INFO, WARN, ERROR, FATAL]
         #   Default [0, 2, 87, 94, 99, 100] → TRACE 0%, DEBUG 2%, INFO 85%, WARN 7%, ERROR 5%, FATAL 1%
         #   Example high-error: [0, 0, 50, 65, 90, 100] → INFO 50%, WARN 15%, ERROR 25%, FATAL 10%
+        # ip_pool:                        # optional: tune the IP address pool for net.peer.ip
+        #   cidrs: ["10.0.0.0/8"]         # CIDR ranges to draw from (default: ["10.0.0.0/8"])
+        #   zipf_skew: 1.5               # Zipf s parameter >1.0 (default: 1.5); higher = fewer IPs dominate
+        #   Pool size is auto-derived: scale * 10 (minimum 500), so scale=30 → 300 IPs
         template_vars:
           nodes: 3                    # number of k8s nodes (distinct k8s.node.name values)
         needles:

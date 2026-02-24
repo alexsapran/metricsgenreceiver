@@ -206,6 +206,20 @@ receivers:
     * `quiet_multiplier`: multiplier applied to `logs_per_interval` during a quiet period (e.g. `0.2` produces 20% of the baseline).
     * `quiet_duration_min`: minimum number of consecutive intervals a quiet period lasts.
     * `quiet_duration_max`: maximum number of consecutive intervals a quiet period lasts.
+  * `diurnal_profile`: optional block that applies time-of-day-aware volume shaping.
+    When omitted, no diurnal adjustment is applied (multiplier = 1.0).
+    When present, the effective log count is scaled by a deterministic multiplier based on the simulated time.
+    The diurnal multiplier is applied first; then the probabilistic `volume_profile` (if any) is applied on top.
+    * `peak_hour` (default `14`): hour of day (0–23) with maximum traffic.
+    * `trough_hour` (default `4`): hour of day (0–23) with minimum traffic.
+    * `peak_multiplier` (default `3.0`): multiplier at peak hour.
+    * `trough_multiplier` (default `0.2`): multiplier at trough hour.
+    * The curve between peak and trough follows a smooth cosine interpolation.
+    * `cron_bursts`: optional list of periodic batch-job bursts.
+      * `interval`: burst period (e.g. `15m`, `1h`).
+      * `multiplier`: burst multiplier (e.g. `5.0`).
+      * `duration`: how long each burst lasts (e.g. `1m`). Must be less than `interval`.
+      When the simulated time falls within a burst window, the effective multiplier is the max of the diurnal value and the burst multiplier.
   * Built-in log scenarios:
     * `builtin/simple`: generic log messages with basic resource attributes.
     * `builtin/k8s-nginx`: nginx access-style logs in a Kubernetes context.

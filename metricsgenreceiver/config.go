@@ -43,10 +43,11 @@ type LogScenarioCfg struct {
 	Scale            int               `mapstructure:"scale"`
 	Concurrency      int               `mapstructure:"concurrency"`
 	TemplateVars     map[string]any    `mapstructure:"template_vars"`
-	LogsPerInterval  int               `mapstructure:"logs_per_interval"`
-	EmitTraceContext bool              `mapstructure:"emit_trace_context"`
-	Needles          []NeedleCfg       `mapstructure:"needles"`
-	VolumeProfile    *VolumeProfileCfg `mapstructure:"volume_profile"`
+	LogsPerInterval  int                `mapstructure:"logs_per_interval"`
+	EmitTraceContext bool               `mapstructure:"emit_trace_context"`
+	Needles          []NeedleCfg        `mapstructure:"needles"`
+	VolumeProfile    *VolumeProfileCfg  `mapstructure:"volume_profile"`
+	DiurnalProfile   *DiurnalProfileCfg `mapstructure:"diurnal_profile"`
 	// SeverityWeights overrides the profile's default severity distribution.
 	// Cumulative percentages for [TRACE, DEBUG, INFO, WARN, ERROR, FATAL].
 	// e.g. [0, 2, 87, 94, 99, 100] = 0% TRACE, 2% DEBUG, 85% INFO, 7% WARN, 5% ERROR, 1% FATAL.
@@ -65,6 +66,20 @@ type IPPoolCfg struct {
 	// Higher values make fewer IPs dominate traffic. Must be > 1.0.
 	// Default: 1.5
 	ZipfSkew float64 `mapstructure:"zipf_skew"`
+}
+
+type DiurnalProfileCfg struct {
+	PeakHour        int             `mapstructure:"peak_hour"`
+	TroughHour      int             `mapstructure:"trough_hour"`
+	PeakMultiplier  float64         `mapstructure:"peak_multiplier"`
+	TroughMultiplier float64        `mapstructure:"trough_multiplier"`
+	CronBursts      []CronBurstCfg  `mapstructure:"cron_bursts"`
+}
+
+type CronBurstCfg struct {
+	Interval   time.Duration `mapstructure:"interval"`
+	Multiplier float64       `mapstructure:"multiplier"`
+	Duration   time.Duration `mapstructure:"duration"`
 }
 
 type VolumeProfileCfg struct {
@@ -169,6 +184,9 @@ func (cfg *Config) Validate() error {
 		if err := validateVolumeProfile(scn.VolumeProfile); err != nil {
 			return fmt.Errorf("log_scenarios: %w", err)
 		}
+		if err := validateDiurnalProfile(scn.DiurnalProfile); err != nil {
+			return fmt.Errorf("log_scenarios: %w", err)
+		}
 		if err := validateSeverityWeights(scn.SeverityWeights); err != nil {
 			return fmt.Errorf("log_scenarios: %w", err)
 		}
@@ -211,6 +229,46 @@ func validateIPPool(ip *IPPoolCfg) error {
 	}
 	if ip.ZipfSkew != 0 && ip.ZipfSkew <= 1.0 {
 		return fmt.Errorf("ip_pool: zipf_skew must be > 1.0 (got %f)", ip.ZipfSkew)
+	}
+	return nil
+}
+
+func validateDiurnalProfile(dp *DiurnalProfileCfg) error {
+	if dp == nil {
+		return nil
+	}
+	if dp.PeakHour == 0 && dp.TroughHour == 0 {
+		dp.PeakHour = 14
+		dp.TroughHour = 4
+	}
+	if dp.PeakHour < 0 || dp.PeakHour > 23 {
+		return fmt.Errorf("diurnal_profile: peak_hour must be 0-23 (got %d)", dp.PeakHour)
+	}
+	if dp.TroughHour < 0 || dp.TroughHour > 23 {
+		return fmt.Errorf("diurnal_profile: trough_hour must be 0-23 (got %d)", dp.TroughHour)
+	}
+	if dp.PeakHour == dp.TroughHour {
+		return fmt.Errorf("diurnal_profile: peak_hour and trough_hour must differ")
+	}
+	if dp.PeakMultiplier <= 0 {
+		dp.PeakMultiplier = 3.0
+	}
+	if dp.TroughMultiplier <= 0 {
+		dp.TroughMultiplier = 0.2
+	}
+	for i, cb := range dp.CronBursts {
+		if cb.Interval <= 0 {
+			return fmt.Errorf("diurnal_profile: cron_bursts[%d] interval must be > 0", i)
+		}
+		if cb.Multiplier <= 0 {
+			return fmt.Errorf("diurnal_profile: cron_bursts[%d] multiplier must be > 0", i)
+		}
+		if cb.Duration <= 0 {
+			return fmt.Errorf("diurnal_profile: cron_bursts[%d] duration must be > 0", i)
+		}
+		if cb.Duration >= cb.Interval {
+			return fmt.Errorf("diurnal_profile: cron_bursts[%d] duration must be < interval", i)
+		}
 	}
 	return nil
 }

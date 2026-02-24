@@ -457,3 +457,84 @@ func TestLogsGenReceiver_VolumeProfile_Deterministic(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, json1, json2, "same seed and volume_profile must produce identical output")
 }
+
+func TestDiurnalMultiplier(t *testing.T) {
+	t.Run("nil config returns 1.0", func(t *testing.T) {
+		assert.Equal(t, 1.0, diurnalMultiplier(time.Now(), nil))
+	})
+
+	t.Run("cosine curve at peak hour", func(t *testing.T) {
+		cfg := &DiurnalProfileCfg{
+			PeakHour:        14,
+			TroughHour:      4,
+			PeakMultiplier:  3.0,
+			TroughMultiplier: 0.2,
+		}
+		tPeak := time.Date(2024, 1, 15, 14, 0, 0, 0, time.UTC)
+		assert.InDelta(t, 3.0, diurnalMultiplier(tPeak, cfg), 0.001)
+	})
+
+	t.Run("cosine curve at trough hour", func(t *testing.T) {
+		cfg := &DiurnalProfileCfg{
+			PeakHour:        14,
+			TroughHour:      4,
+			PeakMultiplier:  3.0,
+			TroughMultiplier: 0.2,
+		}
+		tTrough := time.Date(2024, 1, 15, 4, 0, 0, 0, time.UTC)
+		assert.InDelta(t, 0.2, diurnalMultiplier(tTrough, cfg), 0.001)
+	})
+
+	t.Run("cosine curve midpoint", func(t *testing.T) {
+		cfg := &DiurnalProfileCfg{
+			PeakHour:        14,
+			TroughHour:      4,
+			PeakMultiplier:  3.0,
+			TroughMultiplier: 0.2,
+		}
+		tMid := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
+		midpoint := (3.0 + 0.2) / 2
+		assert.InDelta(t, midpoint, diurnalMultiplier(tMid, cfg), 0.1)
+	})
+
+	t.Run("cron burst overrides when higher", func(t *testing.T) {
+		cfg := &DiurnalProfileCfg{
+			PeakHour:        14,
+			TroughHour:      4,
+			PeakMultiplier:  3.0,
+			TroughMultiplier: 0.2,
+			CronBursts: []CronBurstCfg{
+				{Interval: 15 * time.Minute, Multiplier: 5.0, Duration: 1 * time.Minute},
+			},
+		}
+		tBurst := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		assert.Equal(t, 5.0, diurnalMultiplier(tBurst, cfg))
+	})
+
+	t.Run("cron burst does not override when diurnal higher", func(t *testing.T) {
+		cfg := &DiurnalProfileCfg{
+			PeakHour:        14,
+			TroughHour:      4,
+			PeakMultiplier:  10.0,
+			TroughMultiplier: 0.2,
+			CronBursts: []CronBurstCfg{
+				{Interval: 15 * time.Minute, Multiplier: 5.0, Duration: 1 * time.Minute},
+			},
+		}
+		tPeak := time.Date(2024, 1, 15, 14, 0, 0, 0, time.UTC)
+		assert.InDelta(t, 10.0, diurnalMultiplier(tPeak, cfg), 0.001)
+	})
+
+	t.Run("deterministic same time same result", func(t *testing.T) {
+		cfg := &DiurnalProfileCfg{
+			PeakHour:        14,
+			TroughHour:      4,
+			PeakMultiplier:  3.0,
+			TroughMultiplier: 0.2,
+		}
+		t0 := time.Date(2024, 6, 15, 10, 30, 0, 0, time.UTC)
+		m1 := diurnalMultiplier(t0, cfg)
+		m2 := diurnalMultiplier(t0, cfg)
+		assert.Equal(t, m1, m2)
+	})
+}

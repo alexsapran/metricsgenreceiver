@@ -16,15 +16,15 @@ receivers:
           nodes: 15
           pods_per_node: 3
         volume_profile:
-          burst_probability: 0.05      # chance (0.0–1.0) of entering a burst each interval
+          burst_probability: 0.08      # chance (0.0–1.0) of entering a burst each interval
           burst_multiplier_min: 2.0    # minimum logs multiplier during a burst
-          burst_multiplier_max: 5.0    # maximum logs multiplier during a burst
-          burst_duration_min: 2        # minimum consecutive intervals a burst lasts
-          burst_duration_max: 8        # maximum consecutive intervals a burst lasts
+          burst_multiplier_max: 8.0    # maximum logs multiplier during a burst
+          burst_duration_min: 8        # minimum consecutive intervals a burst lasts
+          burst_duration_max: 24       # maximum consecutive intervals a burst lasts, 120 seconds
           quiet_probability: 0.03      # chance (0.0–1.0) of entering a quiet period each interval
           quiet_multiplier: 0.2        # logs multiplier during a quiet period (0.2 = 20% of baseline)
-          quiet_duration_min: 3        # minimum consecutive intervals a quiet period lasts
-          quiet_duration_max: 10       # maximum consecutive intervals a quiet period lasts
+          quiet_duration_min: 8        # minimum consecutive intervals a quiet period lasts
+          quiet_duration_max: 24       # maximum consecutive intervals a quiet period lasts
         needles:
           - name: upstream_timeout
             message: "upstream timed out (110: Connection timed out) while connecting to upstream"

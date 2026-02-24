@@ -50,6 +50,44 @@ type volumeState struct {
 	remainingIntervals int
 }
 
+func diurnalMultiplier(t time.Time, cfg *DiurnalProfileCfg) float64 {
+	if cfg == nil {
+		return 1.0
+	}
+	peakMult := cfg.PeakMultiplier
+	if peakMult <= 0 {
+		peakMult = 3.0
+	}
+	troughMult := cfg.TroughMultiplier
+	if troughMult <= 0 {
+		troughMult = 0.2
+	}
+	peakH := cfg.PeakHour
+	troughH := cfg.TroughHour
+	hour := t.Hour()
+	phase := (hour - peakH + 24) % 24
+	troughPhase := (troughH - peakH + 24) % 24
+	var angle float64
+	if phase <= troughPhase {
+		angle = math.Pi * float64(phase) / float64(troughPhase)
+	} else {
+		angle = math.Pi + math.Pi*float64(phase-troughPhase)/float64(24-troughPhase)
+	}
+	base := troughMult + (peakMult-troughMult)*(math.Cos(angle)+1)/2
+	baseUnix := t.UnixNano()
+	maxMult := base
+	for _, cb := range cfg.CronBursts {
+		mod := baseUnix % int64(cb.Interval)
+		if mod < 0 {
+			mod += int64(cb.Interval)
+		}
+		if mod < int64(cb.Duration) && cb.Multiplier > maxMult {
+			maxMult = cb.Multiplier
+		}
+	}
+	return maxMult
+}
+
 // resolveVolumeMultiplier returns the effective multiplier for this interval and
 // updates the state for the next call. Must be called on the main goroutine
 // before fan-out so all workers for a scenario see the same volume.
@@ -268,8 +306,9 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 			continue
 		}
 
-		mult := resolveVolumeMultiplier(&scn.volume, r.baseRand, scn.config.VolumeProfile)
-		effectiveLogs := int(float64(scn.config.LogsPerInterval) * mult)
+		diurnalMult := diurnalMultiplier(currentTime, scn.config.DiurnalProfile)
+		volumeMult := resolveVolumeMultiplier(&scn.volume, r.baseRand, scn.config.VolumeProfile)
+		effectiveLogs := int(float64(scn.config.LogsPerInterval) * diurnalMult * volumeMult)
 		if effectiveLogs < 1 && scn.config.LogsPerInterval > 0 {
 			effectiveLogs = 1
 		}

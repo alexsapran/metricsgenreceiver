@@ -171,3 +171,48 @@ func TestValidateVolumeProfile(t *testing.T) {
 		}), "quiet_duration_max")
 	})
 }
+
+func TestValidateDiurnalProfile(t *testing.T) {
+	t.Run("nil profile is valid", func(t *testing.T) {
+		assert.NoError(t, validateDiurnalProfile(nil))
+	})
+
+	t.Run("valid profile", func(t *testing.T) {
+		assert.NoError(t, validateDiurnalProfile(&DiurnalProfileCfg{
+			PeakHour:        14,
+			TroughHour:      4,
+			PeakMultiplier:  3.0,
+			TroughMultiplier: 0.2,
+		}))
+	})
+
+	t.Run("peak_hour out of range", func(t *testing.T) {
+		assert.ErrorContains(t, validateDiurnalProfile(&DiurnalProfileCfg{
+			PeakHour: 24, TroughHour: 4, PeakMultiplier: 3.0, TroughMultiplier: 0.2,
+		}), "peak_hour")
+	})
+
+	t.Run("peak_hour equals trough_hour", func(t *testing.T) {
+		assert.ErrorContains(t, validateDiurnalProfile(&DiurnalProfileCfg{
+			PeakHour: 14, TroughHour: 14, PeakMultiplier: 3.0, TroughMultiplier: 0.2,
+		}), "must differ")
+	})
+
+	t.Run("empty profile gets defaults", func(t *testing.T) {
+		cfg := &DiurnalProfileCfg{PeakHour: 0, TroughHour: 0}
+		require.NoError(t, validateDiurnalProfile(cfg))
+		assert.Equal(t, 14, cfg.PeakHour)
+		assert.Equal(t, 4, cfg.TroughHour)
+		assert.Equal(t, 3.0, cfg.PeakMultiplier)
+		assert.Equal(t, 0.2, cfg.TroughMultiplier)
+	})
+
+	t.Run("cron burst duration >= interval", func(t *testing.T) {
+		assert.ErrorContains(t, validateDiurnalProfile(&DiurnalProfileCfg{
+			PeakHour: 14, TroughHour: 4, PeakMultiplier: 3.0, TroughMultiplier: 0.2,
+			CronBursts: []CronBurstCfg{
+				{Interval: 15 * time.Minute, Multiplier: 5.0, Duration: 15 * time.Minute},
+			},
+		}), "duration must be < interval")
+	})
+}

@@ -12,6 +12,15 @@ receivers:
         scale: 30                     # total pod instances = nodes * pods_per_node (3 * 10 = 30)
         logs_per_interval: 50         # log records emitted per pod per interval
         concurrency: 10               # parallel goroutines for generation throughput
+        # diurnal_profile:            # optional: time-of-day volume shaping (peak 14:00, trough 04:00)
+        #   peak_hour: 14
+        #   trough_hour: 4
+        #   peak_multiplier: 3.0
+        #   trough_multiplier: 0.2
+        #   cron_bursts:
+        #     - interval: 15m
+        #       multiplier: 5.0
+        #       duration: 1m
         # severity_weights: [0, 2, 87, 94, 99, 100]  # optional override: [TRACE, DEBUG, INFO, WARN, ERROR, FATAL]
         #   Default [0, 2, 87, 94, 99, 100] → TRACE 0%, DEBUG 2%, INFO 85%, WARN 7%, ERROR 5%, FATAL 1%
         #   Example high-error: [0, 0, 50, 65, 90, 100] → INFO 50%, WARN 15%, ERROR 25%, FATAL 10%

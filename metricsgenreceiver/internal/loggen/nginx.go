@@ -100,8 +100,8 @@ func nginxAccessLogs(rng *rand.Rand, ipCfg *IPPoolConfig) []MessageTemplate {
 			Severity:    plog.SeverityNumberInfo,
 			Format:      "%s - - [%s] \"GET /api/v1/products?page=%d&limit=20 HTTP/1.1\" 200 %d \"-\" \"%s\"",
 			Args:        []ArgGenerator{zipfIP, Timestamp(tsLayout), RandomInt(1, 50), RandomBytes, RandomUserAgent},
-			AttrFromArg: map[string]int{"net.peer.ip": 0, "http.status_code": 3, "http.response.body.size": 4, "user_agent.original": 5},
-			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("GET"), "http.url": Static("/api/v1/products"), "http.flavor": RandomFrom("1.1", "2.0")},
+			AttrFromArg: map[string]int{"net.peer.ip": 0, "http.response.body.size": 3, "user_agent.original": 4},
+			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("GET"), "http.status_code": HTTPStatus(200), "http.url": Static("/api/v1/products"), "http.flavor": RandomFrom("1.1", "2.0")},
 		},
 		{
 			Severity: plog.SeverityNumberInfo,

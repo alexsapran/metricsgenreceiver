@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -373,14 +374,39 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 
 		for k, v := range reusableAttrs {
 			switch val := v.(type) {
+			case nil:
+				continue
 			case int:
 				lr.Attributes().PutInt(k, int64(val))
 			case int64:
 				lr.Attributes().PutInt(k, val)
+			case float64:
+				lr.Attributes().PutDouble(k, val)
 			case string:
 				lr.Attributes().PutStr(k, val)
+			case bool:
+				lr.Attributes().PutBool(k, val)
+			case []any:
+				sl := lr.Attributes().PutEmptySlice(k)
+				sl.EnsureCapacity(len(val))
+				for _, elem := range val {
+					switch e := elem.(type) {
+					case int:
+						sl.AppendEmpty().SetInt(int64(e))
+					case int64:
+						sl.AppendEmpty().SetInt(e)
+					case float64:
+						sl.AppendEmpty().SetDouble(e)
+					case string:
+						sl.AppendEmpty().SetStr(e)
+					case bool:
+						sl.AppendEmpty().SetBool(e)
+					default:
+						sl.AppendEmpty().SetStr(anyToString(e))
+					}
+				}
 			default:
-				lr.Attributes().PutStr(k, fmt.Sprintf("%v", v))
+				lr.Attributes().PutStr(k, anyToString(v))
 			}
 		}
 
@@ -424,6 +450,26 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 
 func (r *LogsGenReceiver) getNewRand() *rand.Rand {
 	return rand.New(rand.NewSource(r.baseRand.Int63()))
+}
+
+// anyToString converts an unknown value to string without fmt.Sprintf allocation
+// overhead. Covers the realistic types our generators may produce; the fmt
+// fallback exists only as a safety net for truly unexpected types.
+func anyToString(v any) string {
+	switch val := v.(type) {
+	case int:
+		return strconv.FormatInt(int64(val), 10)
+	case int64:
+		return strconv.FormatInt(val, 10)
+	case float64:
+		return strconv.FormatFloat(val, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(val)
+	case string:
+		return val
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 func (r *LogsGenReceiver) Shutdown(_ context.Context) error {

@@ -1,7 +1,9 @@
 package loggen
 
 import (
+	"encoding/hex"
 	"fmt"
+	"math"
 	"math/rand"
 	"net"
 	"strconv"
@@ -61,6 +63,15 @@ type AttrGen struct {
 	Gen ArgGenerator
 }
 
+// RareAttrGen describes a rarely-present attribute. The generator is always
+// invoked (to keep the rng stream deterministic) but the value is only emitted
+// when the probability roll succeeds.
+type RareAttrGen struct {
+	Key         string
+	Probability float64
+	Gen         ArgGenerator
+}
+
 // MessageTemplate is a log message pattern with its severity.
 type MessageTemplate struct {
 	Severity plog.SeverityNumber
@@ -69,6 +80,8 @@ type MessageTemplate struct {
 	// Attrs are optional record-level attributes in deterministic order.
 	Attrs       []AttrGen
 	AttrFromArg map[string]int // attr key -> index into Args (reuse same value for consistency)
+	// RareAttrs are low-presence attributes (<1%). Always consume rng, conditionally emit.
+	RareAttrs []RareAttrGen
 }
 
 // ArgGenerator produces a random argument for a message template placeholder.
@@ -107,8 +120,9 @@ func GenerateLogRecord(rng *rand.Rand, profile AppProfile, timestamp time.Time) 
 		args[i] = gen(rng, ctx)
 	}
 	body = fmt.Sprintf(tmpl.Format, args...)
+	hasAttrs := len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 || len(tmpl.RareAttrs) > 0
 	attrs = nil
-	if len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 {
+	if hasAttrs {
 		attrs = make(map[string]any)
 		for k, idx := range tmpl.AttrFromArg {
 			if idx >= 0 && idx < len(args) {
@@ -124,7 +138,16 @@ func GenerateLogRecord(rng *rand.Rand, profile AppProfile, timestamp time.Time) 
 			if _, ok := attrs[ag.Key]; ok {
 				continue
 			}
-			attrs[ag.Key] = ag.Gen(rng, ctx)
+			v := ag.Gen(rng, ctx)
+			if v != nil {
+				attrs[ag.Key] = v
+			}
+		}
+		for _, ra := range tmpl.RareAttrs {
+			v := ra.Gen(rng, ctx)
+			if rng.Float64() < ra.Probability {
+				attrs[ra.Key] = v
+			}
 		}
 	}
 	return body, tmpl.Severity, attrs
@@ -215,8 +238,9 @@ func GenerateFromPrepared(rng *rand.Rand, pp *PreparedProfile, timestamp time.Ti
 		args[i] = gen(rng, ctx)
 	}
 	body = fmt.Sprintf(tmpl.Format, args...)
+	hasAttrs := len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 || len(tmpl.RareAttrs) > 0
 	attrs = nil
-	if len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 {
+	if hasAttrs {
 		attrs = make(map[string]any)
 		for k, idx := range tmpl.AttrFromArg {
 			if idx >= 0 && idx < len(args) {
@@ -232,7 +256,16 @@ func GenerateFromPrepared(rng *rand.Rand, pp *PreparedProfile, timestamp time.Ti
 			if _, ok := attrs[ag.Key]; ok {
 				continue
 			}
-			attrs[ag.Key] = ag.Gen(rng, ctx)
+			v := ag.Gen(rng, ctx)
+			if v != nil {
+				attrs[ag.Key] = v
+			}
+		}
+		for _, ra := range tmpl.RareAttrs {
+			v := ra.Gen(rng, ctx)
+			if rng.Float64() < ra.Probability {
+				attrs[ra.Key] = v
+			}
 		}
 	}
 	return body, tmpl.Severity, attrs
@@ -263,7 +296,7 @@ func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp tim
 		args[i] = gen(rng, ctx)
 	}
 	body = fmt.Sprintf(tmpl.Format, args...)
-	if len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 {
+	if len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 || len(tmpl.RareAttrs) > 0 {
 		for k, idx := range tmpl.AttrFromArg {
 			if idx >= 0 && idx < len(args) {
 				v := args[idx]
@@ -278,7 +311,16 @@ func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp tim
 			if _, ok := attrsOut[ag.Key]; ok {
 				continue
 			}
-			attrsOut[ag.Key] = ag.Gen(rng, ctx)
+			v := ag.Gen(rng, ctx)
+			if v != nil {
+				attrsOut[ag.Key] = v
+			}
+		}
+		for _, ra := range tmpl.RareAttrs {
+			v := ra.Gen(rng, ctx)
+			if rng.Float64() < ra.Probability {
+				attrsOut[ra.Key] = v
+			}
 		}
 	}
 	return body, tmpl.Severity
@@ -855,4 +897,64 @@ func RedisCrashReport(minBytes, maxBytes int, rng *rand.Rand) ArgGenerator {
 		pool[i] = buildRedisCrashReport(rng, targetLen)
 	}
 	return func(r *rand.Rand, _ *GenContext) any { return pool[r.Intn(len(pool))] }
+}
+
+// RandomUUID generates a version-4 UUID (xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx).
+// Consumes exactly 16 bytes from rng per call for deterministic streams.
+var RandomUUID ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
+	var buf [16]byte
+	rng.Read(buf[:])
+	buf[6] = (buf[6] & 0x0f) | 0x40
+	buf[8] = (buf[8] & 0x3f) | 0x80
+	var out [36]byte
+	hex.Encode(out[0:8], buf[0:4])
+	out[8] = '-'
+	hex.Encode(out[9:13], buf[4:6])
+	out[13] = '-'
+	hex.Encode(out[14:18], buf[6:8])
+	out[18] = '-'
+	hex.Encode(out[19:23], buf[8:10])
+	out[23] = '-'
+	hex.Encode(out[24:36], buf[10:16])
+	return string(out[:])
+}
+
+// LogNormalInt returns an ArgGenerator that produces log-normally distributed
+// integers. Useful for latency, response times, and size distributions where
+// most values cluster near the median with a long right tail.
+func LogNormalInt(median, sigma float64) ArgGenerator {
+	return func(rng *rand.Rand, _ *GenContext) any {
+		v := median * math.Exp(sigma*rng.NormFloat64())
+		if v < 0 {
+			return 0
+		}
+		return int(math.Round(v))
+	}
+}
+
+// OptionalAttr wraps a generator so it always consumes rng (preserving
+// determinism) but returns nil when the probability roll fails. Nil values
+// are skipped during attribute serialization.
+func OptionalAttr(probability float64, gen ArgGenerator) ArgGenerator {
+	return func(rng *rand.Rand, ctx *GenContext) any {
+		val := gen(rng, ctx)
+		if rng.Float64() < probability {
+			return val
+		}
+		return nil
+	}
+}
+
+// SliceAttr returns an ArgGenerator that produces a variable-length []any.
+// Length is drawn from [minLen, maxLen] inclusive, then each element is
+// generated in order for deterministic output.
+func SliceAttr(elemGen ArgGenerator, minLen, maxLen int) ArgGenerator {
+	return func(rng *rand.Rand, ctx *GenContext) any {
+		n := minLen + rng.Intn(maxLen-minLen+1)
+		out := make([]any, n)
+		for i := range out {
+			out[i] = elemGen(rng, ctx)
+		}
+		return out
+	}
 }

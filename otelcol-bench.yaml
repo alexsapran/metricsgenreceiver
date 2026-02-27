@@ -33,6 +33,14 @@ receivers:
         template_vars:
           nodes: 3
 
+      - path: builtin/k8s-proxy
+        scale: 24
+        logs_per_interval: 35
+        concurrency: 8
+        emit_trace_context: true
+        template_vars:
+          nodes: 5
+
 exporters:
   nop:
 

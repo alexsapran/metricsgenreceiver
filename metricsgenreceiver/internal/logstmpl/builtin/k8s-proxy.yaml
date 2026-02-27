@@ -1,0 +1,76 @@
+resourceLogs:
+  - resource:
+      attributes:
+        - key: cloud.account.id
+          value:
+            stringValue: "111111111111"
+        - key: cloud.availability_zone
+          value:
+            stringValue: "eu-west-1a"
+        - key: cloud.platform
+          value:
+            stringValue: "EC2"
+        - key: cloud.provider
+          value:
+            stringValue: "aws"
+        - key: cloud.region
+          value:
+            stringValue: "eu-west-1"
+        - key: container.id
+          value:
+            stringValue: "0"
+        - key: container.image.name
+          value:
+            stringValue: "registry.example.com/platform/api-gateway:git-000000000000"
+        - key: host.arch
+          value:
+            stringValue: "aarch64"
+        - key: host.id
+          value:
+            stringValue: "00000000000000000000000000000000"
+        - key: host.name
+          value:
+            stringValue: "ip-10-0-0-0.eu-west-1.compute.internal"
+        - key: host.type
+          value:
+            stringValue: "c6g.2xlarge"
+        - key: k8s.container.name
+          value:
+            stringValue: "api-gateway"
+        - key: k8s.deployment.name
+          value:
+            stringValue: "api-gateway-eu-west-1a"
+        - key: k8s.namespace.name
+          value:
+            stringValue: "api-gateway"
+        - key: k8s.node.name
+          value:
+            stringValue: "ip-10-0-0-0.eu-west-1.compute.internal"
+        - key: k8s.node.uid
+          value:
+            stringValue: "00000000-0000-0000-0000-000000000000"
+        - key: k8s.pod.name
+          value:
+            stringValue: "api-gateway-eu-west-1a-placeholder"
+        - key: k8s.pod.uid
+          value:
+            stringValue: "00000000-0000-0000-0000-000000000000"
+        - key: k8s.replicaset.name
+          value:
+            stringValue: "api-gateway-eu-west-1a-placeholder"
+        - key: os.type
+          value:
+            stringValue: "linux"
+        - key: service.name
+          value:
+            stringValue: "proxy"
+    scopeLogs:
+      - scope:
+          name: "log-generator"
+        logRecords:
+          - timeUnixNano: "0"
+            severityNumber: 9
+            severityText: "INFO"
+            body:
+              stringValue: "placeholder"
+            attributes: []

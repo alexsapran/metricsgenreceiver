@@ -344,24 +344,8 @@ type IPPoolConfig struct {
 // ZipfianIP returns an ArgGenerator that selects from a pre-generated pool of IPs
 // using a Zipfian (power-law) distribution. The pool is built deterministically
 // from the configured CIDRs using the provided rng. If cfg is nil, defaults are used.
-func ZipfianIP(poolSize int, rng *rand.Rand, cfg *IPPoolConfig) ArgGenerator {
-	cidrs := []string{"10.0.0.0/8"}
-	skew := 1.5
-	if cfg != nil {
-		if len(cfg.CIDRs) > 0 {
-			cidrs = cfg.CIDRs
-		}
-		if cfg.ZipfSkew > 1.0 {
-			skew = cfg.ZipfSkew
-		}
-		if cfg.PoolSize > 0 {
-			poolSize = cfg.PoolSize
-		}
-	}
-	if poolSize < 1 {
-		poolSize = 500
-	}
-
+// buildIPPool generates a deterministic pool of IP strings from the given CIDRs.
+func buildIPPool(rng *rand.Rand, cidrs []string, poolSize int) []string {
 	type cidrRange struct {
 		base    uint32
 		hostMax uint32
@@ -382,7 +366,7 @@ func ZipfianIP(poolSize int, rng *rand.Rand, cfg *IPPoolConfig) ArgGenerator {
 		ranges = append(ranges, cidrRange{base: base, hostMax: inverseMask})
 	}
 	if len(ranges) == 0 {
-		ranges = append(ranges, cidrRange{base: 0x0A000000, hostMax: 0x00FFFFFF}) // 10.0.0.0/8
+		ranges = append(ranges, cidrRange{base: 0x0A000000, hostMax: 0x00FFFFFF})
 	}
 
 	pool := make([]string, poolSize)
@@ -392,9 +376,39 @@ func ZipfianIP(poolSize int, rng *rand.Rand, cfg *IPPoolConfig) ArgGenerator {
 		ip := cr.base | host
 		pool[i] = net.IPv4(byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip)).String()
 	}
+	return pool
+}
+
+const zipfSelectionSize = 4096
+
+func ZipfianIP(poolSize int, rng *rand.Rand, cfg *IPPoolConfig) ArgGenerator {
+	cidrs := []string{"10.0.0.0/8"}
+	skew := 1.5
+	if cfg != nil {
+		if len(cfg.CIDRs) > 0 {
+			cidrs = cfg.CIDRs
+		}
+		if cfg.ZipfSkew > 1.0 {
+			skew = cfg.ZipfSkew
+		}
+		if cfg.PoolSize > 0 {
+			poolSize = cfg.PoolSize
+		}
+	}
+	if poolSize < 1 {
+		poolSize = 500
+	}
+
+	pool := buildIPPool(rng, cidrs, poolSize)
+
+	// Pre-compute Zipfian selection indices to avoid per-call NewZipf overhead.
+	selection := make([]string, zipfSelectionSize)
+	zipf := rand.NewZipf(rng, skew, 1, uint64(poolSize-1))
+	for i := range selection {
+		selection[i] = pool[zipf.Uint64()]
+	}
 	return func(r *rand.Rand, _ *GenContext) any {
-		zipf := rand.NewZipf(r, skew, 1, uint64(poolSize-1))
-		return pool[zipf.Uint64()]
+		return selection[r.Intn(zipfSelectionSize)]
 	}
 }
 

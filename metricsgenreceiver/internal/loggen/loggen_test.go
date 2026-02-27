@@ -134,6 +134,7 @@ func TestPreparedProfileDeterminism(t *testing.T) {
 		MySQLProfile(rand.New(rand.NewSource(0)), nil),
 		RedisProfile(rand.New(rand.NewSource(0)), nil),
 		GoAppProfile(rand.New(rand.NewSource(0))),
+		ProxyProfile(rand.New(rand.NewSource(0)), nil),
 	}
 	ts := time.Date(2024, 6, 15, 10, 30, 0, 0, time.UTC)
 

@@ -1,0 +1,70 @@
+resourceLogs:
+  - resource:
+      attributes:
+        - key: cloud.account.id
+          value:
+            stringValue: "{{.RandomFrom `111111111111` `222222222222` `333333333333`}}"
+        - key: cloud.availability_zone
+          value:
+            stringValue: "{{.ModFrom .InstanceID `eu-west-1a` `eu-west-1b` `eu-west-1c`}}"
+        - key: cloud.platform
+          value:
+            stringValue: "EC2"
+        - key: cloud.provider
+          value:
+            stringValue: "aws"
+        - key: cloud.region
+          value:
+            stringValue: "eu-west-1"
+        - key: container.id
+          value:
+            stringValue: "{{.RandomHex 64}}"
+        - key: container.image.name
+          value:
+            stringValue: "registry.example.com/platform/api-gateway:git-{{.RandomHex 12}}"
+        - key: host.arch
+          value:
+            stringValue: "{{.RandomFrom `aarch64` `x86_64`}}"
+        - key: host.id
+          value:
+            stringValue: "{{.RandomHex 32}}"
+        - key: host.name
+          value:
+            stringValue: "ip-10-{{.Mod .InstanceID 256}}-{{.RandomHex 3}}-{{.RandomHex 3}}.eu-west-1.compute.internal"
+        - key: host.type
+          value:
+            stringValue: "{{.RandomFrom `c6g.2xlarge` `c6g.4xlarge` `m6g.2xlarge`}}"
+        - key: k8s.container.name
+          value:
+            stringValue: "api-gateway"
+        - key: k8s.deployment.name
+          value:
+            stringValue: "api-gateway-{{.ModFrom .InstanceID `eu-west-1a` `eu-west-1b` `eu-west-1c`}}"
+        - key: k8s.namespace.name
+          value:
+            stringValue: "api-gateway"
+        - key: k8s.node.name
+          value:
+            stringValue: "ip-10-{{.Mod .InstanceID 256}}-{{.RandomHex 3}}-{{.RandomHex 3}}.eu-west-1.compute.internal"
+        - key: k8s.node.uid
+          value:
+            stringValue: "{{.UUID}}"
+        - key: k8s.pod.name
+          value:
+            stringValue: "api-gateway-{{.ModFrom .InstanceID `eu-west-1a` `eu-west-1b` `eu-west-1c`}}-{{.RandomHex 10}}-{{.RandomHex 5}}"
+        - key: k8s.pod.uid
+          value:
+            stringValue: "{{.UUID}}"
+        - key: k8s.replicaset.name
+          value:
+            stringValue: "api-gateway-{{.ModFrom .InstanceID `eu-west-1a` `eu-west-1b` `eu-west-1c`}}-{{.RandomHex 10}}"
+        - key: os.type
+          value:
+            stringValue: "linux"
+        - key: service.name
+          value:
+            stringValue: "proxy"
+    scopeLogs:
+      - scope:
+          name: "log-generator"
+        logRecords: []

@@ -77,6 +77,18 @@ receivers:
             rate: 0.0001
             severity: FATAL
 
+      # HTTP proxy / API gateway
+      - path: builtin/k8s-proxy
+        scale: 24                     # 8 pods * 3 AZs
+        logs_per_interval: 35
+        concurrency: 8
+        emit_trace_context: true      # proxy is trace-aware
+        template_vars:
+          nodes: 5
+        # ip_pool:                        # optional: proxy uses 10.0.0.0/8 + 100.64.0.0/10 by default
+        #   cidrs: ["10.0.0.0/8", "100.64.0.0/10"]
+        #   zipf_skew: 1.5
+
 #      # Simple log template (for testing)
 #      - path: builtin/simple
 #        scale: 5

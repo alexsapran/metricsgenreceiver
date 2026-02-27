@@ -157,7 +157,7 @@ receivers:
     * `scale` is the total number of pod instances generated.
     * `template_vars.nodes` controls how many distinct `k8s.node.name` values pods are distributed across.
     * The formula `scale = nodes * pods_per_node` gives exact, known cardinalities for analytical queries (e.g. `count by k8s.node.name` returns exactly `nodes` distinct values).
-  * `emit_trace_context` (default `false`): when true, each log record gets a random `trace_id` and `span_id`, simulating an OTel-instrumented application. Only supported for profiles that model instrumented apps (currently `builtin/k8s-goapp`). Has no effect on other scenarios (e.g. nginx, mysql, redis) since those workloads don't typically have tracing context.
+  * `emit_trace_context` (default `false`): when true, each log record gets a random `trace_id` and `span_id`, simulating a trace-aware application. Supported for `builtin/k8s-goapp` and `builtin/k8s-proxy`. Has no effect on other scenarios (e.g. nginx, mysql, redis) since those workloads don't typically have tracing context.
   * `severity_weights`: optional array of 6 cumulative percentages that override the profile's default severity distribution.
     The order is `[TRACE, DEBUG, INFO, WARN, ERROR, FATAL]`. Each value is the cumulative boundary out of 100.
     The last value must be `100` and values must be non-decreasing.
@@ -226,8 +226,11 @@ receivers:
     * `builtin/k8s-mysql`: MySQL server logs in a Kubernetes context.
     * `builtin/k8s-redis`: Redis server logs in a Kubernetes context.
     * `builtin/k8s-goapp`: Go application logs (JSON format) in a Kubernetes context.
+    * `builtin/k8s-proxy`: HTTP proxy / API gateway access logs in a Kubernetes context.
+      Generates structured access logs with empty body (all data in attributes), production-calibrated
+      field distributions, and per-AZ cloud resource attributes. Supports `emit_trace_context`.
 
-    Schema variability: different services emit different resource and record attributes, matching real-world K8s deployments. For example, nginx (Helm-managed ingress) includes all Helm labels; goapp (CI/CD-deployed) omits Helm labels but adds telemetry SDK and team ownership; mysql (operator-managed) uses `managed-by: mysql-operator`; redis varies `redis.io/role` (master/replica). Record-level attributes also vary per template (e.g. `http.flavor` and `user_agent.original` on some nginx access logs, `rpc.system`/`rpc.service`/`rpc.method` on gRPC templates, `db.operation.name`/`db.sql.table` on query templates).
+    Schema variability: different services emit different resource and record attributes, matching real-world K8s deployments. For example, nginx (Helm-managed ingress) includes all Helm labels; goapp (CI/CD-deployed) omits Helm labels but adds telemetry SDK and team ownership; mysql (operator-managed) uses `managed-by: mysql-operator`; redis varies `redis.io/role` (master/replica); proxy (per-AZ deployment) uses `cloud.*` and `host.*` infra attributes. Record-level attributes also vary per template (e.g. `http.flavor` and `user_agent.original` on some nginx access logs, `rpc.system`/`rpc.service`/`rpc.method` on gRPC templates, `db.operation.name`/`db.sql.table` on query templates, `routing_decision`/`status_reason`/`organization_id` on proxy access logs).
 
 ### Adding new log types
 

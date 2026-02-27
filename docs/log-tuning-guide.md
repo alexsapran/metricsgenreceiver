@@ -211,7 +211,7 @@ When omitted, the profile default is used: `[0, 2, 87, 94, 99, 100]`.
 ## 4. IP Pool Configuration
 
 The `ip_pool` block configures the IP address pool used for `net.peer.ip` and similar fields
-in nginx, mysql, and redis profiles.
+in nginx, mysql, redis, and proxy profiles.
 
 **Parameters:**
 
@@ -266,6 +266,7 @@ matching real-world Kubernetes deployments where workloads are managed different
 | goapp | CI/CD deployed | `telemetry.sdk.name`, `telemetry.sdk.language`, `team` label | No Helm labels — deployed via CI pipeline |
 | mysql | Operator-managed | `managed-by: mysql-operator`, `mysql.oracle.com/cluster` | No `helm.sh/chart` or `part-of` |
 | redis | Helm StatefulSet | `helm.sh/chart`, `managed-by: Helm`, `redis.io/role` | No `part-of`; has master/replica role |
+| proxy | K8s Deployment per-AZ | `cloud.*`, `host.*`, `container.image.name`, `os.type` | Cloud infra attrs; per-AZ deployments & replicasets |
 
 ### Record-level attributes (per template)
 
@@ -278,6 +279,8 @@ Not all log records carry the same attributes. Attributes vary by message templa
 | goapp | `messaging.system`, `messaging.destination.name` | Worker/queue templates |
 | mysql | `db.operation.name`, `db.sql.table` | Query-related templates |
 | redis | `db.operation.name`, `net.peer.port` | Connection/command templates |
+| proxy | `request_id`, `connection_id`, `action`, `routing_decision`, `status_reason`, `application_type`, `resolution_type`, `organization_id` | All templates (14 core on INFO, ~25 on WARN/ERROR) |
+| proxy | `serverless.project.type`, `tls_version`, `tls_cipher`, `request_source`, `client_meta` | INFO templates (rare attrs, 3–30% presence) |
 
 This creates a realistic multimodal field-count distribution across log records.
 
@@ -310,11 +313,11 @@ Needle counts are reported at shutdown for verification.
 ### Trace context
 
 ```yaml
-emit_trace_context: true   # only effective for k8s-goapp profile
+emit_trace_context: true   # effective for k8s-goapp and k8s-proxy profiles
 ```
 
 When enabled, each log record gets a random `trace_id` and `span_id`.
-Only meaningful for profiles representing OTel-instrumented apps (goapp).
+Meaningful for profiles representing instrumented or trace-aware apps (goapp, proxy).
 Has no effect on nginx, mysql, or redis profiles.
 
 ### Topology: `scale`, `concurrency`, `template_vars`
@@ -422,6 +425,31 @@ log_scenarios:
     template_vars:
       nodes: 3
 ```
+
+### API Gateway / Proxy
+
+HTTP proxy access logs with production-calibrated distributions. The proxy profile
+generates structured access logs with empty body (all data in attributes), matching
+real API gateway behavior. Field values, status code distributions, and timing
+percentiles are calibrated from production data.
+
+```yaml
+log_scenarios:
+  - path: builtin/k8s-proxy
+    scale: 24                     # 8 pods × 3 AZs
+    logs_per_interval: 35
+    concurrency: 8
+    emit_trace_context: true      # proxy is trace-aware
+    template_vars:
+      nodes: 5
+```
+
+Key characteristics:
+- **Empty body**: all data lives in record attributes (14 core on INFO, ~25 on WARN/ERROR)
+- **Weighted distributions**: status codes (200=85%, 404=3.5%), methods (GET=43%, POST=38%), actions (bulk, search, security, etc.)
+- **Log-normal timing**: response_time p50=2ms, proxy_internal_time_us p50=107µs
+- **Rare attrs on INFO**: fields like `tls_version`, `client_meta`, `serverless.project.type` appear at 3–30% presence
+- **Per-AZ topology**: resource attributes include `cloud.*`, `host.*`, per-AZ deployment names
 
 ### Stress Test
 

@@ -24,6 +24,10 @@ run: install
 	./otelcol-dev/otelcol --config ./otelcol.dev.yaml
 
 
+.PHONY: bench
+bench:
+	cd metricsgenreceiver && go test -run=^$$ -bench=BenchmarkLogsGenReceiver -benchtime=1x -timeout=10m -v .
+
 .PHONY: clean
 clean:
 	rm -f ocb

@@ -148,9 +148,14 @@ func TestPreparedProfileDeterminism(t *testing.T) {
 				rng2 := rand.New(rand.NewSource(77))
 				attrs1 := make(map[string]any, 8)
 				attrs2 := make(map[string]any, 8)
+				argsBuf1 := make([]any, pp.MaxArgs())
+				argsBuf2 := make([]any, pp.MaxArgs())
+				var bodyBuf1, bodyBuf2 []byte
 				for i := 0; i < iterations; i++ {
-					body1, sev1 := GenerateFromPreparedInto(rng1, pp, ts, attrs1)
-					body2, sev2 := GenerateFromPreparedInto(rng2, pp, ts, attrs2)
+					var body1, body2 string
+					var sev1, sev2 plog.SeverityNumber
+					body1, sev1, bodyBuf1 = GenerateFromPreparedInto(rng1, pp, ts, attrs1, argsBuf1, bodyBuf1)
+					body2, sev2, bodyBuf2 = GenerateFromPreparedInto(rng2, pp, ts, attrs2, argsBuf2, bodyBuf2)
 					assert.Equal(t, body1, body2, "run %d record %d: body", run, i)
 					assert.Equal(t, sev1, sev2, "run %d record %d: severity", run, i)
 					for k, v := range attrs1 {
@@ -181,7 +186,7 @@ var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-
 
 func TestRandomUUID_Format(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
-	ctx := &GenContext{Timestamp: time.Now()}
+	ctx := GenContext{Timestamp: time.Now()}
 	for i := 0; i < 1000; i++ {
 		val := RandomUUID(rng, ctx)
 		s, ok := val.(string)
@@ -194,7 +199,7 @@ func TestRandomUUID_Format(t *testing.T) {
 func TestRandomUUID_Determinism(t *testing.T) {
 	rng1 := rand.New(rand.NewSource(99))
 	rng2 := rand.New(rand.NewSource(99))
-	ctx := &GenContext{}
+	ctx := GenContext{}
 	for i := 0; i < 500; i++ {
 		assert.Equal(t, RandomUUID(rng1, ctx), RandomUUID(rng2, ctx), "record %d", i)
 	}
@@ -202,7 +207,7 @@ func TestRandomUUID_Determinism(t *testing.T) {
 
 func TestRandomUUID_Uniqueness(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
-	ctx := &GenContext{}
+	ctx := GenContext{}
 	seen := make(map[string]struct{}, 10000)
 	for i := 0; i < 10000; i++ {
 		s := RandomUUID(rng, ctx).(string)
@@ -214,7 +219,7 @@ func TestRandomUUID_Uniqueness(t *testing.T) {
 
 func TestLogNormalInt_Distribution(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
-	ctx := &GenContext{}
+	ctx := GenContext{}
 	gen := LogNormalInt(100, 0.5)
 
 	const n = 50000
@@ -240,7 +245,7 @@ func TestLogNormalInt_Determinism(t *testing.T) {
 	gen := LogNormalInt(500, 1.0)
 	rng1 := rand.New(rand.NewSource(77))
 	rng2 := rand.New(rand.NewSource(77))
-	ctx := &GenContext{}
+	ctx := GenContext{}
 	for i := 0; i < 500; i++ {
 		assert.Equal(t, gen(rng1, ctx), gen(rng2, ctx), "record %d", i)
 	}
@@ -251,7 +256,7 @@ func TestOptionalAttr_AlwaysConsumesRng(t *testing.T) {
 	gen := OptionalAttr(0.5, inner)
 	rng1 := rand.New(rand.NewSource(42))
 	rng2 := rand.New(rand.NewSource(42))
-	ctx := &GenContext{}
+	ctx := GenContext{}
 
 	for i := 0; i < 500; i++ {
 		v1 := gen(rng1, ctx)
@@ -263,7 +268,7 @@ func TestOptionalAttr_AlwaysConsumesRng(t *testing.T) {
 func TestOptionalAttr_ProbabilityDistribution(t *testing.T) {
 	gen := OptionalAttr(0.3, Static("present"))
 	rng := rand.New(rand.NewSource(42))
-	ctx := &GenContext{}
+	ctx := GenContext{}
 
 	const n = 10000
 	nilCount := 0
@@ -307,7 +312,7 @@ func TestOptionalAttr_NilValuesSkippedInGenerate(t *testing.T) {
 func TestSliceAttr_Length(t *testing.T) {
 	gen := SliceAttr(RandomInt(1, 100), 2, 5)
 	rng := rand.New(rand.NewSource(42))
-	ctx := &GenContext{}
+	ctx := GenContext{}
 
 	for i := 0; i < 500; i++ {
 		val := gen(rng, ctx)
@@ -328,7 +333,7 @@ func TestSliceAttr_Determinism(t *testing.T) {
 	gen := SliceAttr(RandomFrom("a", "b", "c"), 1, 4)
 	rng1 := rand.New(rand.NewSource(42))
 	rng2 := rand.New(rand.NewSource(42))
-	ctx := &GenContext{}
+	ctx := GenContext{}
 
 	for i := 0; i < 500; i++ {
 		assert.Equal(t, gen(rng1, ctx), gen(rng2, ctx), "record %d", i)
@@ -390,12 +395,17 @@ func TestRareAttrs_InPreparedProfile(t *testing.T) {
 	rng2 := rand.New(rand.NewSource(42))
 	attrs1 := make(map[string]any, 4)
 	attrs2 := make(map[string]any, 4)
+	argsBuf1 := make([]any, pp.MaxArgs())
+	argsBuf2 := make([]any, pp.MaxArgs())
+	var bodyBuf1, bodyBuf2 []byte
 
 	const n = 5000
 	emitCount := 0
 	for i := 0; i < n; i++ {
-		body1, sev1 := GenerateFromPreparedInto(rng1, pp, ts, attrs1)
-		body2, sev2 := GenerateFromPreparedInto(rng2, pp, ts, attrs2)
+		var body1, body2 string
+		var sev1, sev2 plog.SeverityNumber
+		body1, sev1, bodyBuf1 = GenerateFromPreparedInto(rng1, pp, ts, attrs1, argsBuf1, bodyBuf1)
+		body2, sev2, bodyBuf2 = GenerateFromPreparedInto(rng2, pp, ts, attrs2, argsBuf2, bodyBuf2)
 		assert.Equal(t, body1, body2, "record %d: body", i)
 		assert.Equal(t, sev1, sev2, "record %d: severity", i)
 		assert.Equal(t, len(attrs1), len(attrs2), "record %d: attr count", i)

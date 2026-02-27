@@ -25,9 +25,9 @@ const proxyPoolSize = 4096
 func proxyUUIDPool(rng *rand.Rand) ArgGenerator {
 	pool := make([]string, proxyPoolSize)
 	for i := range pool {
-		pool[i] = RandomUUID(rng, nil).(string)
+		pool[i] = RandomUUID(rng, GenContext{}).(string)
 	}
-	return func(r *rand.Rand, _ *GenContext) any {
+	return func(r *rand.Rand, _ GenContext) any {
 		return pool[r.Intn(proxyPoolSize)]
 	}
 }
@@ -42,7 +42,7 @@ func proxyLogNormalPool(rng *rand.Rand, median, sigma float64) ArgGenerator {
 		}
 		pool[i] = int(math.Round(v))
 	}
-	return func(r *rand.Rand, _ *GenContext) any {
+	return func(r *rand.Rand, _ GenContext) any {
 		return pool[r.Intn(proxyPoolSize)]
 	}
 }
@@ -55,7 +55,7 @@ func proxyZipfPool(ipPool []string, rng *rand.Rand, skew float64) ArgGenerator {
 	for i := range indices {
 		indices[i] = int(zipf.Uint64())
 	}
-	return func(r *rand.Rand, _ *GenContext) any {
+	return func(r *rand.Rand, _ GenContext) any {
 		return ipPool[indices[r.Intn(proxyPoolSize)]]
 	}
 }
@@ -87,7 +87,7 @@ func proxyWeightedStrPool(rng *rand.Rand, choices []weightedStr) ArgGenerator {
 			}
 		}
 	}
-	return func(r *rand.Rand, _ *GenContext) any {
+	return func(r *rand.Rand, _ GenContext) any {
 		return pool[r.Intn(proxyPoolSize)]
 	}
 }
@@ -109,7 +109,7 @@ func proxyWeightedIntPool(rng *rand.Rand, choices []weightedInt) ArgGenerator {
 			}
 		}
 	}
-	return func(r *rand.Rand, _ *GenContext) any {
+	return func(r *rand.Rand, _ GenContext) any {
 		return pool[r.Intn(proxyPoolSize)]
 	}
 }

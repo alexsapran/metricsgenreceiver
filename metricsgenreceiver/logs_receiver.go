@@ -37,6 +37,7 @@ type LogsGenReceiver struct {
 	progress          *LogsProgress
 	needleOccurrences map[string]*atomic.Uint64
 	stats             *logstats.ShardedLogStats
+	done              chan struct{}
 }
 
 type LogScenario struct {
@@ -219,6 +220,7 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 		progress:          newLogsProgress(),
 		needleOccurrences: needleOccurrences,
 		stats:             stats,
+		done:              make(chan struct{}),
 	}, nil
 }
 
@@ -226,6 +228,7 @@ func (r *LogsGenReceiver) Start(ctx context.Context, host component.Host) error 
 	ctx, cancel := context.WithCancel(ctx)
 	r.cancel = cancel
 	go func() {
+		defer close(r.done)
 		nextLog := r.progress.start.Add(10 * time.Second)
 		ticker := time.NewTicker(r.cfg.Interval)
 		defer ticker.Stop()
@@ -316,9 +319,14 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 
 		if scn.config.Concurrency == 0 {
 			shard := r.stats.Shard(0)
+			reusableAttrs := make(map[string]any, 8)
+			argsBuf := make([]any, scn.prepared.MaxArgs())
+			var bodyBuf []byte
 			for i := 0; i < scn.config.Scale; i++ {
 				resource := scn.resources[i]
-				totalLogs += uint64(r.produceLogsForInstance(ctx, r.baseRand, currentTime, *scn, resource, shard, effectiveLogs))
+				var n int
+				n, bodyBuf = r.produceLogsForInstance(ctx, r.baseRand, currentTime, *scn, resource, shard, effectiveLogs, reusableAttrs, argsBuf, bodyBuf)
+				totalLogs += uint64(n)
 			}
 			continue
 		}
@@ -333,11 +341,16 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 			wg.Add(1)
 			go func(rng *rand.Rand, sh *logstats.LogStats, wi int, logs int) {
 				defer wg.Done()
+				reusableAttrs := make(map[string]any, 8)
+				argsBuf := make([]any, scenario.prepared.MaxArgs())
+				var bodyBuf []byte
 				var count uint64
 				for j := 0; j < scale/concurrency; j++ {
 					idx := j + wi*scale/concurrency
 					resource := scenario.resources[idx]
-					count += uint64(r.produceLogsForInstance(ctx, rng, currentTime, scenario, resource, sh, logs))
+					var n int
+					n, bodyBuf = r.produceLogsForInstance(ctx, rng, currentTime, scenario, resource, sh, logs, reusableAttrs, argsBuf, bodyBuf)
+					count += uint64(n)
 				}
 				atomic.AddUint64(&totalLogs, count)
 			}(rng, shard, workerIdx, effectiveLogs)
@@ -348,9 +361,9 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 	return totalLogs
 }
 
-func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.Rand, currentTime time.Time, scn LogScenario, instanceResource pcommon.Resource, statsShard *logstats.LogStats, logsPerInterval int) int {
+func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.Rand, currentTime time.Time, scn LogScenario, instanceResource pcommon.Resource, statsShard *logstats.LogStats, logsPerInterval int, reusableAttrs map[string]any, argsBuf []any, bodyBuf []byte) (int, []byte) {
 	if logsPerInterval <= 0 {
-		return 0
+		return 0, bodyBuf
 	}
 
 	r.obsreport.StartLogsOp(ctx)
@@ -361,13 +374,14 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 	sl := rl.ScopeLogs().AppendEmpty()
 	sl.Scope().SetName(scn.prepared.GetScopeName())
 
-	reusableAttrs := make(map[string]any, 8)
 	for i := 0; i < logsPerInterval; i++ {
 		lr := sl.LogRecords().AppendEmpty()
 		instanceTime := addLogJitter(currentTime, r.cfg.IntervalJitterStdDev, r.cfg.Interval, rng)
 		lr.SetTimestamp(pcommon.NewTimestampFromTime(instanceTime))
 
-		body, sev := loggen.GenerateFromPreparedInto(rng, scn.prepared, instanceTime, reusableAttrs)
+		var body string
+		var sev plog.SeverityNumber
+		body, sev, bodyBuf = loggen.GenerateFromPreparedInto(rng, scn.prepared, instanceTime, reusableAttrs, argsBuf, bodyBuf)
 		lr.SetSeverityNumber(sev)
 		lr.SetSeverityText(severityText(sev))
 		lr.Body().SetStr(body)
@@ -445,7 +459,7 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 	logCount := logs.LogRecordCount()
 	err := r.nextLogs.ConsumeLogs(ctx, logs)
 	r.obsreport.EndLogsOp(ctx, metadata.Type.String(), logCount, err)
-	return logCount
+	return logCount, bodyBuf
 }
 
 func (r *LogsGenReceiver) getNewRand() *rand.Rand {

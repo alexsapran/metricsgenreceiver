@@ -66,12 +66,19 @@ func (s *LogStats) Record(severityText string, resource pcommon.Resource, logRec
 	})
 }
 
+const maxFieldCardinality = 500
+
 func (s *LogStats) addCardinality(key string, v pcommon.Value) {
-	valStr := valueToString(v)
-	if s.FieldCardinality[key] == nil {
-		s.FieldCardinality[key] = make(map[string]struct{})
+	existing := s.FieldCardinality[key]
+	if existing != nil && len(existing) >= maxFieldCardinality {
+		return
 	}
-	s.FieldCardinality[key][valStr] = struct{}{}
+	valStr := valueToString(v)
+	if existing == nil {
+		existing = make(map[string]struct{})
+		s.FieldCardinality[key] = existing
+	}
+	existing[valStr] = struct{}{}
 }
 
 func valueToString(v pcommon.Value) string {

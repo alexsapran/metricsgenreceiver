@@ -90,12 +90,12 @@ type GenContext struct {
 	Timestamp time.Time
 }
 
-type ArgGenerator func(rng *rand.Rand, ctx *GenContext) any
+type ArgGenerator func(rng *rand.Rand, ctx GenContext) any
 
 // GenerateLogRecord picks a message template by severity, fills placeholders,
 // and returns the log body, severity, and record-level attributes.
 func GenerateLogRecord(rng *rand.Rand, profile AppProfile, timestamp time.Time) (body string, severity plog.SeverityNumber, attrs map[string]any) {
-	ctx := &GenContext{Timestamp: timestamp}
+	ctx := GenContext{Timestamp: timestamp}
 	sev := pickSeverityFromWeights(rng, profile.SeverityWeights)
 	msgs := filterMessagesBySeverity(profile.Messages, sev)
 	if len(msgs) == 0 {
@@ -212,6 +212,18 @@ func (pp *PreparedProfile) GetScopeName() string {
 	return "log-generator"
 }
 
+// MaxArgs returns the maximum number of arguments across all message templates,
+// useful for pre-allocating a reusable args buffer.
+func (pp *PreparedProfile) MaxArgs() int {
+	maxA := 0
+	for _, m := range pp.profile.Messages {
+		if len(m.Args) > maxA {
+			maxA = len(m.Args)
+		}
+	}
+	return maxA
+}
+
 // OverrideSeverityWeights replaces the profile's severity weights.
 func (pp *PreparedProfile) OverrideSeverityWeights(w [6]int) {
 	pp.profile.SeverityWeights = w
@@ -219,7 +231,7 @@ func (pp *PreparedProfile) OverrideSeverityWeights(w [6]int) {
 
 // GenerateFromPrepared generates a log record using pre-bucketed messages.
 func GenerateFromPrepared(rng *rand.Rand, pp *PreparedProfile, timestamp time.Time) (body string, severity plog.SeverityNumber, attrs map[string]any) {
-	ctx := &GenContext{Timestamp: timestamp}
+	ctx := GenContext{Timestamp: timestamp}
 	sev := pickSeverityFromWeights(rng, pp.profile.SeverityWeights)
 	msgs := pp.bySeverity[sev]
 	if len(msgs) == 0 {
@@ -272,12 +284,14 @@ func GenerateFromPrepared(rng *rand.Rand, pp *PreparedProfile, timestamp time.Ti
 }
 
 // GenerateFromPreparedInto generates a log record into a reusable attrs map to avoid allocations.
-// attrsOut must be non-nil; it is cleared and reused.
-func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp time.Time, attrsOut map[string]any) (body string, severity plog.SeverityNumber) {
+// attrsOut must be non-nil; it is cleared and reused. argsBuf is a reusable slice for template
+// arguments (cap >= MaxArgs()). bodyBuf is a reusable byte buffer for body formatting; the
+// returned bodyBuf should be passed back to subsequent calls to retain the grown capacity.
+func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp time.Time, attrsOut map[string]any, argsBuf []any, bodyBuf []byte) (body string, severity plog.SeverityNumber, bodyBufOut []byte) {
 	for k := range attrsOut {
 		delete(attrsOut, k)
 	}
-	ctx := &GenContext{Timestamp: timestamp}
+	ctx := GenContext{Timestamp: timestamp}
 	sev := pickSeverityFromWeights(rng, pp.profile.SeverityWeights)
 	msgs := pp.bySeverity[sev]
 	if len(msgs) == 0 {
@@ -288,14 +302,20 @@ func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp tim
 		}
 	}
 	if len(msgs) == 0 {
-		return "no messages configured", plog.SeverityNumberInfo
+		return "no messages configured", plog.SeverityNumberInfo, bodyBuf
 	}
 	tmpl := msgs[rng.Intn(len(msgs))]
-	args := make([]any, len(tmpl.Args))
+	args := argsBuf[:0]
+	if cap(argsBuf) >= len(tmpl.Args) {
+		args = argsBuf[:len(tmpl.Args)]
+	} else {
+		args = make([]any, len(tmpl.Args))
+	}
 	for i, gen := range tmpl.Args {
 		args[i] = gen(rng, ctx)
 	}
-	body = fmt.Sprintf(tmpl.Format, args...)
+	// Uses sprintfSimple instead of fmt.Sprintf to avoid reflection overhead (see definition below).
+	body, bodyBuf = sprintfSimple(bodyBuf, tmpl.Format, args)
 	if len(tmpl.AttrFromArg) > 0 || len(tmpl.Attrs) > 0 || len(tmpl.RareAttrs) > 0 {
 		for k, idx := range tmpl.AttrFromArg {
 			if idx >= 0 && idx < len(args) {
@@ -323,14 +343,104 @@ func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp tim
 			}
 		}
 	}
-	return body, tmpl.Severity
+	return body, tmpl.Severity, bodyBuf
+}
+
+// sprintfSimple is a fast-path replacement for fmt.Sprintf that avoids the
+// reflection and format-string parsing overhead of the standard library.
+// It only supports the verbs used in our log message format strings:
+// %s, %d, %x, %q, %v, and %%. It does NOT support width, precision, or flags.
+// The buf is reused across calls to minimise allocations; callers should keep
+// the returned (grown) slice for the next call.
+func sprintfSimple(buf []byte, format string, args []any) (string, []byte) {
+	buf = buf[:0]
+	argIdx := 0
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' || i+1 >= len(format) {
+			buf = append(buf, format[i])
+			continue
+		}
+		i++
+		switch format[i] {
+		case 's':
+			buf = appendAnyStr(buf, args[argIdx])
+			argIdx++
+		case 'd':
+			buf = appendAnyInt(buf, args[argIdx])
+			argIdx++
+		case 'x':
+			buf = appendAnyHex(buf, args[argIdx])
+			argIdx++
+		case 'q':
+			buf = strconv.AppendQuote(buf, anyStr(args[argIdx]))
+			argIdx++
+		case 'v':
+			buf = appendAnyStr(buf, args[argIdx])
+			argIdx++
+		case '%':
+			buf = append(buf, '%')
+		default:
+			buf = append(buf, '%', format[i])
+		}
+	}
+	return string(buf), buf
+}
+
+func appendAnyStr(buf []byte, v any) []byte {
+	switch s := v.(type) {
+	case string:
+		return append(buf, s...)
+	case fmt.Stringer:
+		return append(buf, s.String()...)
+	case int:
+		return strconv.AppendInt(buf, int64(s), 10)
+	default:
+		return append(buf, fmt.Sprint(v)...)
+	}
+}
+
+func appendAnyInt(buf []byte, v any) []byte {
+	switch n := v.(type) {
+	case int:
+		return strconv.AppendInt(buf, int64(n), 10)
+	case int64:
+		return strconv.AppendInt(buf, n, 10)
+	case string:
+		return append(buf, n...)
+	default:
+		return append(buf, fmt.Sprint(v)...)
+	}
+}
+
+func appendAnyHex(buf []byte, v any) []byte {
+	switch n := v.(type) {
+	case int:
+		return strconv.AppendInt(buf, int64(n), 16)
+	case int64:
+		return strconv.AppendInt(buf, n, 16)
+	case uint64:
+		return strconv.AppendUint(buf, n, 16)
+	default:
+		return append(buf, fmt.Sprint(v)...)
+	}
+}
+
+func anyStr(v any) string {
+	switch s := v.(type) {
+	case string:
+		return s
+	case fmt.Stringer:
+		return s.String()
+	default:
+		return fmt.Sprint(v)
+	}
 }
 
 // --- ArgGenerator helpers ---
 
 // RandomIP generates uniform random IPs across the full IPv4 space.
 // Deprecated: prefer ZipfianIP for realistic workloads with a finite IP pool.
-var RandomIP ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
+var RandomIP ArgGenerator = func(rng *rand.Rand, _ GenContext) any {
 	return net.IPv4(byte(rng.Intn(256)), byte(rng.Intn(256)), byte(rng.Intn(256)), byte(rng.Intn(256))).String()
 }
 
@@ -407,18 +517,18 @@ func ZipfianIP(poolSize int, rng *rand.Rand, cfg *IPPoolConfig) ArgGenerator {
 	for i := range selection {
 		selection[i] = pool[zipf.Uint64()]
 	}
-	return func(r *rand.Rand, _ *GenContext) any {
+	return func(r *rand.Rand, _ GenContext) any {
 		return selection[r.Intn(zipfSelectionSize)]
 	}
 }
 
 func RandomPath(paths []string) ArgGenerator {
-	return func(r *rand.Rand, _ *GenContext) any { return paths[r.Intn(len(paths))] }
+	return func(r *rand.Rand, _ GenContext) any { return paths[r.Intn(len(paths))] }
 }
 
 // RandomPathWithSuffix appends a random suffix (e.g. ID) to a randomly chosen base path.
 func RandomPathWithSuffix(bases []string, suffixGen ArgGenerator) ArgGenerator {
-	return func(r *rand.Rand, ctx *GenContext) any {
+	return func(r *rand.Rand, ctx GenContext) any {
 		base := bases[r.Intn(len(bases))]
 		suffix := suffixGen(r, ctx)
 		return base + fmt.Sprintf("%v", suffix)
@@ -438,7 +548,7 @@ func (r routeWithTemplate) String() string { return r.body }
 // with a random ID for the body, and returns routeWithTemplate so AttrFromArg for http.url
 // can extract the low-cardinality template. Templates use {id} as placeholder.
 func RouteWithRandomID(templates []string) ArgGenerator {
-	return func(r *rand.Rand, ctx *GenContext) any {
+	return func(r *rand.Rand, ctx GenContext) any {
 		tpl := templates[r.Intn(len(templates))]
 		id := RandomID(8)(r, ctx).(string)
 		body := strings.ReplaceAll(tpl, "{id}", id)
@@ -455,10 +565,10 @@ func RouteTemplate(v any) (string, bool) {
 }
 
 func Static(s string) ArgGenerator {
-	return func(*rand.Rand, *GenContext) any { return s }
+	return func(*rand.Rand, GenContext) any { return s }
 }
 
-var RandomHTTPStatus ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
+var RandomHTTPStatus ArgGenerator = func(rng *rand.Rand, _ GenContext) any {
 	// Realistic distribution: mostly 200, some 201, 301, 304, 400, 404, 500, 502, 503
 	weights := []struct {
 		status int
@@ -480,7 +590,7 @@ var RandomHTTPStatus ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
 	return 200
 }
 
-var RandomBytes ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
+var RandomBytes ArgGenerator = func(rng *rand.Rand, _ GenContext) any {
 	// Common response sizes: 0, 15 (health), small, medium, large
 	n := rng.Intn(100)
 	switch {
@@ -496,14 +606,14 @@ var RandomBytes ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
 }
 
 func RandomDuration(minMs, maxMs int) ArgGenerator {
-	return func(r *rand.Rand, _ *GenContext) any {
+	return func(r *rand.Rand, _ GenContext) any {
 		return r.Intn(maxMs-minMs+1) + minMs
 	}
 }
 
 func RandomID(length int) ArgGenerator {
 	const hexChars = "0123456789abcdef"
-	return func(r *rand.Rand, _ *GenContext) any {
+	return func(r *rand.Rand, _ GenContext) any {
 		b := make([]byte, length)
 		for i := range b {
 			b[i] = hexChars[r.Intn(16)]
@@ -512,7 +622,7 @@ func RandomID(length int) ArgGenerator {
 	}
 }
 
-var RandomUserAgent ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
+var RandomUserAgent ArgGenerator = func(rng *rand.Rand, _ GenContext) any {
 	userAgents := []string{
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
 		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
@@ -527,38 +637,38 @@ var RandomUserAgent ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
 }
 
 func Timestamp(layout string) ArgGenerator {
-	return func(_ *rand.Rand, ctx *GenContext) any {
+	return func(_ *rand.Rand, ctx GenContext) any {
 		return ctx.Timestamp.Format(layout)
 	}
 }
 
 func RandomFrom(choices ...string) ArgGenerator {
-	return func(r *rand.Rand, _ *GenContext) any {
+	return func(r *rand.Rand, _ GenContext) any {
 		return choices[r.Intn(len(choices))]
 	}
 }
 
 func RandomInt(min, max int) ArgGenerator {
-	return func(r *rand.Rand, _ *GenContext) any {
+	return func(r *rand.Rand, _ GenContext) any {
 		return r.Intn(max-min+1) + min
 	}
 }
 
 // RandomFromInt returns an ArgGenerator that picks from the given integers.
 func RandomFromInt(choices ...int) ArgGenerator {
-	return func(r *rand.Rand, _ *GenContext) any {
+	return func(r *rand.Rand, _ GenContext) any {
 		return choices[r.Intn(len(choices))]
 	}
 }
 
 // HTTPMethod returns an ArgGenerator for HTTP method (for attrs).
 func HTTPMethod(method string) ArgGenerator {
-	return func(*rand.Rand, *GenContext) any { return method }
+	return func(*rand.Rand, GenContext) any { return method }
 }
 
 // HTTPStatus returns an ArgGenerator that yields the given status (for attrs).
 func HTTPStatus(status int) ArgGenerator {
-	return func(*rand.Rand, *GenContext) any { return status }
+	return func(*rand.Rand, GenContext) any { return status }
 }
 
 var goStackPackages = []string{
@@ -614,7 +724,7 @@ func GoStackTrace(minBytes, maxBytes int, rng *rand.Rand) ArgGenerator {
 		targetLen := rng.Intn(maxBytes-minBytes+1) + minBytes
 		pool[i] = buildGoStackTrace(rng, targetLen)
 	}
-	return func(r *rand.Rand, _ *GenContext) any { return pool[r.Intn(len(pool))] }
+	return func(r *rand.Rand, _ GenContext) any { return pool[r.Intn(len(pool))] }
 }
 
 var javaStackPackages = []string{
@@ -667,7 +777,7 @@ func JavaStackTrace(minBytes, maxBytes int, rng *rand.Rand) ArgGenerator {
 		targetLen := rng.Intn(maxBytes-minBytes+1) + minBytes
 		pool[i] = buildJavaStackTrace(rng, targetLen)
 	}
-	return func(r *rand.Rand, _ *GenContext) any { return pool[r.Intn(len(pool))] }
+	return func(r *rand.Rand, _ GenContext) any { return pool[r.Intn(len(pool))] }
 }
 
 func buildMySQLCrashTrace(r *rand.Rand, targetLen int) string {
@@ -727,7 +837,7 @@ func MySQLCrashTrace(minBytes, maxBytes int, rng *rand.Rand) ArgGenerator {
 		targetLen := rng.Intn(maxBytes-minBytes+1) + minBytes
 		pool[i] = buildMySQLCrashTrace(rng, targetLen)
 	}
-	return func(r *rand.Rand, _ *GenContext) any { return pool[r.Intn(len(pool))] }
+	return func(r *rand.Rand, _ GenContext) any { return pool[r.Intn(len(pool))] }
 }
 
 var nginxErrorMsgs = [...]string{
@@ -765,7 +875,7 @@ func NginxErrorDetails(minBytes, maxBytes int, rng *rand.Rand) ArgGenerator {
 		targetLen := rng.Intn(maxBytes-minBytes+1) + minBytes
 		pool[i] = buildNginxErrorDetails(rng, targetLen)
 	}
-	return func(r *rand.Rand, _ *GenContext) any { return pool[r.Intn(len(pool))] }
+	return func(r *rand.Rand, _ GenContext) any { return pool[r.Intn(len(pool))] }
 }
 
 func buildLargeJSONPayload(r *rand.Rand, targetLen int) string {
@@ -800,7 +910,7 @@ func LargeJSONPayload(minBytes, maxBytes int, rng *rand.Rand) ArgGenerator {
 		targetLen := rng.Intn(maxBytes-minBytes+1) + minBytes
 		pool[i] = buildLargeJSONPayload(rng, targetLen)
 	}
-	return func(r *rand.Rand, _ *GenContext) any { return pool[r.Intn(len(pool))] }
+	return func(r *rand.Rand, _ GenContext) any { return pool[r.Intn(len(pool))] }
 }
 
 func buildSQLExplainPlan(r *rand.Rand, targetLen int) string {
@@ -830,7 +940,7 @@ func SQLExplainPlan(minBytes, maxBytes int, rng *rand.Rand) ArgGenerator {
 		targetLen := rng.Intn(maxBytes-minBytes+1) + minBytes
 		pool[i] = buildSQLExplainPlan(rng, targetLen)
 	}
-	return func(r *rand.Rand, _ *GenContext) any { return pool[r.Intn(len(pool))] }
+	return func(r *rand.Rand, _ GenContext) any { return pool[r.Intn(len(pool))] }
 }
 
 func buildRedisSlowlogOutput(r *rand.Rand, targetLen int) string {
@@ -866,7 +976,7 @@ func RedisSlowlogOutput(minBytes, maxBytes int, rng *rand.Rand) ArgGenerator {
 		targetLen := rng.Intn(maxBytes-minBytes+1) + minBytes
 		pool[i] = buildRedisSlowlogOutput(rng, targetLen)
 	}
-	return func(r *rand.Rand, _ *GenContext) any { return pool[r.Intn(len(pool))] }
+	return func(r *rand.Rand, _ GenContext) any { return pool[r.Intn(len(pool))] }
 }
 
 func buildRedisCrashReport(r *rand.Rand, targetLen int) string {
@@ -910,12 +1020,12 @@ func RedisCrashReport(minBytes, maxBytes int, rng *rand.Rand) ArgGenerator {
 		targetLen := rng.Intn(maxBytes-minBytes+1) + minBytes
 		pool[i] = buildRedisCrashReport(rng, targetLen)
 	}
-	return func(r *rand.Rand, _ *GenContext) any { return pool[r.Intn(len(pool))] }
+	return func(r *rand.Rand, _ GenContext) any { return pool[r.Intn(len(pool))] }
 }
 
 // RandomUUID generates a version-4 UUID (xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx).
 // Consumes exactly 16 bytes from rng per call for deterministic streams.
-var RandomUUID ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
+var RandomUUID ArgGenerator = func(rng *rand.Rand, _ GenContext) any {
 	var buf [16]byte
 	rng.Read(buf[:])
 	buf[6] = (buf[6] & 0x0f) | 0x40
@@ -937,7 +1047,7 @@ var RandomUUID ArgGenerator = func(rng *rand.Rand, _ *GenContext) any {
 // integers. Useful for latency, response times, and size distributions where
 // most values cluster near the median with a long right tail.
 func LogNormalInt(median, sigma float64) ArgGenerator {
-	return func(rng *rand.Rand, _ *GenContext) any {
+	return func(rng *rand.Rand, _ GenContext) any {
 		v := median * math.Exp(sigma*rng.NormFloat64())
 		if v < 0 {
 			return 0
@@ -950,7 +1060,7 @@ func LogNormalInt(median, sigma float64) ArgGenerator {
 // determinism) but returns nil when the probability roll fails. Nil values
 // are skipped during attribute serialization.
 func OptionalAttr(probability float64, gen ArgGenerator) ArgGenerator {
-	return func(rng *rand.Rand, ctx *GenContext) any {
+	return func(rng *rand.Rand, ctx GenContext) any {
 		val := gen(rng, ctx)
 		if rng.Float64() < probability {
 			return val
@@ -963,7 +1073,7 @@ func OptionalAttr(probability float64, gen ArgGenerator) ArgGenerator {
 // Length is drawn from [minLen, maxLen] inclusive, then each element is
 // generated in order for deterministic output.
 func SliceAttr(elemGen ArgGenerator, minLen, maxLen int) ArgGenerator {
-	return func(rng *rand.Rand, ctx *GenContext) any {
+	return func(rng *rand.Rand, ctx GenContext) any {
 		n := minLen + rng.Intn(maxLen-minLen+1)
 		out := make([]any, n)
 		for i := range out {

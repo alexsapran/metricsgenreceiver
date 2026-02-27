@@ -67,7 +67,7 @@ func nginxAccessLogs(rng *rand.Rand, ipCfg *IPPoolConfig) []MessageTemplate {
 			Format:       "%s - - [%s] \"GET %s HTTP/1.1\" %d %d \"-\" \"%s\"",
 			Args:         []ArgGenerator{zipfIP, Timestamp(tsLayout), routeGen, RandomHTTPStatus, RandomBytes, RandomUserAgent},
 			AttrFromArg:  map[string]int{"net.peer.ip": 0, "http.status_code": 3, "http.url": 2, "http.response.body.size": 4, "user_agent.original": 5},
-			Attrs:        map[string]ArgGenerator{"http.method": HTTPMethod("GET"), "http.flavor": RandomFrom("1.1", "2.0")},
+			Attrs:        []AttrGen{{"http.method", HTTPMethod("GET")}, {"http.flavor", RandomFrom("1.1", "2.0")}},
 		},
 		{
 			Severity: plog.SeverityNumberInfo,
@@ -80,28 +80,28 @@ func nginxAccessLogs(rng *rand.Rand, ipCfg *IPPoolConfig) []MessageTemplate {
 				RandomUserAgent,
 			},
 			AttrFromArg: map[string]int{"net.peer.ip": 0, "http.status_code": 3, "http.url": 2, "http.response.body.size": 4, "user_agent.original": 6},
-			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("POST"), "http.request.body.size": RandomInt(0, 50000)},
+			Attrs:       []AttrGen{{"http.method", HTTPMethod("POST")}, {"http.request.body.size", RandomInt(0, 50000)}},
 		},
 		{
 			Severity:     plog.SeverityNumberInfo,
 			Format:       "%s - - [%s] \"GET /health HTTP/1.1\" 200 15 \"-\" \"kube-probe/1.28\"",
 			Args:         []ArgGenerator{zipfIP, Timestamp(tsLayout)},
 			AttrFromArg:  map[string]int{"net.peer.ip": 0},
-			Attrs:        map[string]ArgGenerator{"http.method": HTTPMethod("GET"), "http.status_code": HTTPStatus(200), "http.url": Static("/health")},
+			Attrs:        []AttrGen{{"http.method", HTTPMethod("GET")}, {"http.status_code", HTTPStatus(200)}, {"http.url", Static("/health")}},
 		},
 		{
 			Severity:    plog.SeverityNumberInfo,
 			Format:      "%s - - [%s] \"GET /static/js/app.%s.js HTTP/1.1\" 304 0 \"%s\" \"%s\"",
 			Args:        []ArgGenerator{zipfIP, Timestamp(tsLayout), RandomID(8), RandomFrom("-", "https://app.example.com/"), RandomUserAgent},
 			AttrFromArg: map[string]int{"net.peer.ip": 0, "user_agent.original": 4},
-			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("GET"), "http.status_code": HTTPStatus(304), "http.url": Static("/static/js/app.js"), "http.flavor": RandomFrom("1.1", "2.0")},
+			Attrs:       []AttrGen{{"http.method", HTTPMethod("GET")}, {"http.status_code", HTTPStatus(304)}, {"http.url", Static("/static/js/app.js")}, {"http.flavor", RandomFrom("1.1", "2.0")}},
 		},
 		{
 			Severity:    plog.SeverityNumberInfo,
 			Format:      "%s - - [%s] \"GET /api/v1/products?page=%d&limit=20 HTTP/1.1\" 200 %d \"-\" \"%s\"",
 			Args:        []ArgGenerator{zipfIP, Timestamp(tsLayout), RandomInt(1, 50), RandomBytes, RandomUserAgent},
 			AttrFromArg: map[string]int{"net.peer.ip": 0, "http.response.body.size": 3, "user_agent.original": 4},
-			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("GET"), "http.status_code": HTTPStatus(200), "http.url": Static("/api/v1/products"), "http.flavor": RandomFrom("1.1", "2.0")},
+			Attrs:       []AttrGen{{"http.method", HTTPMethod("GET")}, {"http.status_code", HTTPStatus(200)}, {"http.url", Static("/api/v1/products")}, {"http.flavor", RandomFrom("1.1", "2.0")}},
 		},
 		{
 			Severity: plog.SeverityNumberInfo,
@@ -112,14 +112,14 @@ func nginxAccessLogs(rng *rand.Rand, ipCfg *IPPoolConfig) []MessageTemplate {
 				RandomHTTPStatus, RandomBytes, RandomUserAgent,
 			},
 			AttrFromArg: map[string]int{"net.peer.ip": 0, "http.status_code": 3, "http.url": 2, "http.response.body.size": 4, "user_agent.original": 5},
-			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("GET")},
+			Attrs:       []AttrGen{{"http.method", HTTPMethod("GET")}},
 		},
 		{
 			Severity:    plog.SeverityNumberInfo,
 			Format:      "%s - - [%s] \"DELETE /api/v1/users/%s HTTP/1.1\" %d %d \"-\" \"%s\"",
 			Args:        []ArgGenerator{zipfIP, Timestamp(tsLayout), RandomID(8), RandomFromInt(200, 204, 404), RandomBytes, RandomUserAgent},
 			AttrFromArg: map[string]int{"net.peer.ip": 0, "http.status_code": 3, "http.response.body.size": 4, "user_agent.original": 5},
-			Attrs:       map[string]ArgGenerator{"http.method": HTTPMethod("DELETE"), "http.url": Static("/api/v1/users/{id}")},
+			Attrs:       []AttrGen{{"http.method", HTTPMethod("DELETE")}, {"http.url", Static("/api/v1/users/{id}")}},
 		},
 	}
 }

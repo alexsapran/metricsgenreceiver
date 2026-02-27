@@ -54,13 +54,20 @@ type AppProfile struct {
 	EmitTraceContext bool
 }
 
+// AttrGen pairs an attribute key with its generator, used in ordered slices
+// to ensure deterministic rng consumption regardless of Go map iteration order.
+type AttrGen struct {
+	Key string
+	Gen ArgGenerator
+}
+
 // MessageTemplate is a log message pattern with its severity.
 type MessageTemplate struct {
 	Severity plog.SeverityNumber
 	Format   string         // format string with %s/%d/%v placeholders
 	Args     []ArgGenerator // generators for each placeholder, in order
-	// Attrs are optional record-level attributes. Use AttrFromArg to reuse format args.
-	Attrs       map[string]ArgGenerator
+	// Attrs are optional record-level attributes in deterministic order.
+	Attrs       []AttrGen
 	AttrFromArg map[string]int // attr key -> index into Args (reuse same value for consistency)
 }
 
@@ -113,11 +120,11 @@ func GenerateLogRecord(rng *rand.Rand, profile AppProfile, timestamp time.Time) 
 				}
 			}
 		}
-		for k, gen := range tmpl.Attrs {
-			if _, ok := attrs[k]; ok {
+		for _, ag := range tmpl.Attrs {
+			if _, ok := attrs[ag.Key]; ok {
 				continue
 			}
-			attrs[k] = gen(rng, ctx)
+			attrs[ag.Key] = ag.Gen(rng, ctx)
 		}
 	}
 	return body, tmpl.Severity, attrs
@@ -221,11 +228,11 @@ func GenerateFromPrepared(rng *rand.Rand, pp *PreparedProfile, timestamp time.Ti
 				}
 			}
 		}
-		for k, gen := range tmpl.Attrs {
-			if _, ok := attrs[k]; ok {
+		for _, ag := range tmpl.Attrs {
+			if _, ok := attrs[ag.Key]; ok {
 				continue
 			}
-			attrs[k] = gen(rng, ctx)
+			attrs[ag.Key] = ag.Gen(rng, ctx)
 		}
 	}
 	return body, tmpl.Severity, attrs
@@ -267,11 +274,11 @@ func GenerateFromPreparedInto(rng *rand.Rand, pp *PreparedProfile, timestamp tim
 				}
 			}
 		}
-		for k, gen := range tmpl.Attrs {
-			if _, ok := attrsOut[k]; ok {
+		for _, ag := range tmpl.Attrs {
+			if _, ok := attrsOut[ag.Key]; ok {
 				continue
 			}
-			attrsOut[k] = gen(rng, ctx)
+			attrsOut[ag.Key] = ag.Gen(rng, ctx)
 		}
 	}
 	return body, tmpl.Severity

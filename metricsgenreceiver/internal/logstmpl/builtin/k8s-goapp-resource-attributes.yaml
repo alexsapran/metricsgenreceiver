@@ -9,7 +9,7 @@ resourceLogs:
             stringValue: "{{.ModFrom .InstanceID `default` `backend` `services`}}"
         - key: k8s.node.name
           value:
-            stringValue: "node-{{$nodes := 3}}{{if and .Vars .Vars.nodes}}{{$nodes = .Vars.nodes}}{{end}}{{.Mod .InstanceID $nodes}}"
+            stringValue: "ip-10-0-{{$nodes := 3}}{{if and .Vars .Vars.nodes}}{{$nodes = .Vars.nodes}}{{end}}{{.Mod .InstanceID $nodes}}-0.eu-west-1.compute.internal"
         - key: k8s.pod.name
           value:
             stringValue: "{{.ModFrom .InstanceID `api-gateway` `user-service` `order-service` `payment-service` `notification-service`}}-{{.RandomHex 10}}"

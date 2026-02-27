@@ -9,7 +9,7 @@ resourceLogs:
             stringValue: "default"
         - key: k8s.node.name
           value:
-            stringValue: "node-0"
+            stringValue: "ip-10-0-0-0.eu-west-1.compute.internal"
         - key: k8s.pod.name
           value:
             stringValue: "api-gateway-placeholder"

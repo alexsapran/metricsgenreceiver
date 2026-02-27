@@ -15,4 +15,4 @@ resourceLogs:
             stringValue: "{{.UUID}}"
         - key: k8s.node.name
           value:
-            stringValue: "node-{{.Mod .InstanceID 3}}"
+            stringValue: "ip-10-0-{{.Mod .InstanceID 3}}-0.eu-west-1.compute.internal"

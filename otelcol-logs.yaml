@@ -28,6 +28,16 @@ receivers:
         #   cidrs: ["10.0.0.0/8"]         # CIDR ranges to draw from (default: ["10.0.0.0/8"])
         #   zipf_skew: 1.5               # Zipf s parameter >1.0 (default: 1.5); higher = fewer IPs dominate
         #   Pool size is auto-derived: scale * 10 (minimum 500), so scale=30 → 300 IPs
+        volume_profile:
+          burst_probability: 0.3      # chance (0.0–1.0) of entering a burst each interval
+          burst_multiplier_min: 2.0    # minimum logs multiplier during a burst
+          burst_multiplier_max: 10.0    # maximum logs multiplier during a burst
+          burst_duration_min: 8        # minimum consecutive intervals a burst lasts
+          burst_duration_max: 30       # maximum consecutive intervals a burst lasts, 120 seconds
+          quiet_probability: 0.03      # chance (0.0–1.0) of entering a quiet period each interval
+          quiet_multiplier: 0.2        # logs multiplier during a quiet period (0.2 = 20% of baseline)
+          quiet_duration_min: 8        # minimum consecutive intervals a quiet period lasts
+          quiet_duration_max: 24       # maximum consecutive intervals a quiet period lasts
         template_vars:
           nodes: 3                    # number of k8s nodes (distinct k8s.node.name values)
         needles:
@@ -45,6 +55,16 @@ receivers:
         logs_per_interval: 20
         template_vars:
           nodes: 3
+        volume_profile:
+          burst_probability: 0.3      # chance (0.0–1.0) of entering a burst each interval
+          burst_multiplier_min: 2.0    # minimum logs multiplier during a burst
+          burst_multiplier_max: 10.0    # maximum logs multiplier during a burst
+          burst_duration_min: 8        # minimum consecutive intervals a burst lasts
+          burst_duration_max: 24       # maximum consecutive intervals a burst lasts, 120 seconds
+          quiet_probability: 0.03      # chance (0.0–1.0) of entering a quiet period each interval
+          quiet_multiplier: 0.2        # logs multiplier during a quiet period (0.2 = 20% of baseline)
+          quiet_duration_min: 8        # minimum consecutive intervals a quiet period lasts
+          quiet_duration_max: 24       # maximum consecutive intervals a quiet period lasts
         needles:
           - name: deadlock
             message: "LATEST DETECTED DEADLOCK in transaction 0x7f2a1c003e80"
@@ -76,6 +96,16 @@ receivers:
             message: '{"level":"fatal","ts":"2025-01-01T00:00:00Z","caller":"main.go:42","msg":"panic recovered","error":"runtime error: index out of range [5] with length 3","stacktrace":"goroutine 1 [running]:\nmain.handleRequest()"}'
             rate: 0.0001
             severity: FATAL
+        volume_profile:
+          burst_probability: 0.3      # chance (0.0–1.0) of entering a burst each interval
+          burst_multiplier_min: 2.0    # minimum logs multiplier during a burst
+          burst_multiplier_max: 10.0    # maximum logs multiplier during a burst
+          burst_duration_min: 8        # minimum consecutive intervals a burst lasts
+          burst_duration_max: 24       # maximum consecutive intervals a burst lasts, 120 seconds
+          quiet_probability: 0.03      # chance (0.0–1.0) of entering a quiet period each interval
+          quiet_multiplier: 0.2        # logs multiplier during a quiet period (0.2 = 20% of baseline)
+          quiet_duration_min: 8        # minimum consecutive intervals a quiet period lasts
+          quiet_duration_max: 24       # maximum consecutive intervals a quiet period lasts
 
       # HTTP proxy / API gateway
       - path: builtin/k8s-proxy
@@ -83,8 +113,27 @@ receivers:
         logs_per_interval: 35
         concurrency: 8
         emit_trace_context: true      # proxy is trace-aware
+        volume_profile:
+          burst_probability: 0.3      # chance (0.0–1.0) of entering a burst each interval
+          burst_multiplier_min: 2.0    # minimum logs multiplier during a burst
+          burst_multiplier_max: 10.0    # maximum logs multiplier during a burst
+          burst_duration_min: 8        # minimum consecutive intervals a burst lasts
+          burst_duration_max: 24       # maximum consecutive intervals a burst lasts, 120 seconds
+          quiet_probability: 0.03      # chance (0.0–1.0) of entering a quiet period each interval
+          quiet_multiplier: 0.2        # logs multiplier during a quiet period (0.2 = 20% of baseline)
+          quiet_duration_min: 8        # minimum consecutive intervals a quiet period lasts
+          quiet_duration_max: 24       # maximum consecutive intervals a quiet period lasts
         template_vars:
           nodes: 5
+        needles:
+          - name: upstream_unavailable
+            message: "no healthy upstream instances available"
+            rate: 0.001
+            severity: ERROR
+            attributes:
+              error.type: "upstream_unavailable"
+              status_reason: "NO_AVAILABLE_INSTANCES"
+
         # ip_pool:                        # optional: proxy uses 10.0.0.0/8 + 100.64.0.0/10 by default
         #   cidrs: ["10.0.0.0/8", "100.64.0.0/10"]
         #   zipf_skew: 1.5
@@ -110,7 +159,7 @@ exporters:
     endpoints: [ https://localhost:9200 ]
     user: elastic
     password: changeme
-    num_workers: 2
+    num_workers: 5
     sending_queue:
       enabled: false
     mapping:
@@ -123,8 +172,8 @@ service:
   pipelines:
     logs:
       receivers: [metricsgen]
-#      processors: [batch]
-      exporters: [nop]
-#      exporters: [elasticsearch] # do not use with batch processor. ES exporter is doing batching internally.
+      processors: [batch]
+#      exporters: [nop]
+      exporters: [elasticsearch] # do not use with batch processor. ES exporter is doing batching internally.
 #      exporters: [debug]
 #      exporters: [file]

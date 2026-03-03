@@ -30,7 +30,7 @@ resourceLogs:
             stringValue: "{{.RandomHex 32}}"
         - key: host.name
           value:
-            stringValue: "ip-10-{{.Mod .InstanceID 256}}-{{.RandomHex 3}}-{{.RandomHex 3}}.eu-west-1.compute.internal"
+            stringValue: "ip-10-{{.Mod .InstanceID 256}}-{{.RandomIntn 256}}-{{.RandomIntn 256}}.eu-west-1.compute.internal"
         - key: host.type
           value:
             stringValue: "{{.RandomFrom `c6g.2xlarge` `c6g.4xlarge` `m6g.2xlarge`}}"
@@ -45,7 +45,7 @@ resourceLogs:
             stringValue: "api-gateway"
         - key: k8s.node.name
           value:
-            stringValue: "ip-10-{{.Mod .InstanceID 256}}-{{.RandomHex 3}}-{{.RandomHex 3}}.eu-west-1.compute.internal"
+            stringValue: "ip-10-{{.Mod .InstanceID 256}}-{{.RandomIntn 256}}-{{.RandomIntn 256}}.eu-west-1.compute.internal"
         - key: k8s.node.uid
           value:
             stringValue: "{{.UUID}}"

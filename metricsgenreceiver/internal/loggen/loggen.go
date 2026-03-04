@@ -1082,3 +1082,48 @@ func SliceAttr(elemGen ArgGenerator, minLen, maxLen int) ArgGenerator {
 		return out
 	}
 }
+
+// commonErrorMessages are realistic error messages seen across production
+// services. Used by ErrorMessageAttrs to populate error.message at ~70%.
+var commonErrorMessages = []string{
+	"connection refused",
+	"context deadline exceeded",
+	"connection reset by peer",
+	"i/o timeout",
+	"TLS handshake timeout",
+	"no such host",
+	"broken pipe",
+	"connection timed out",
+	"request canceled",
+	"EOF",
+	"permission denied",
+	"resource temporarily unavailable",
+	"too many open files",
+}
+
+// ErrorMessageAttrs returns the two cross-cutting AttrGen entries that every
+// profile should append to each MessageTemplate.Attrs:
+//   - error.message at ~70% presence (pool-based, 13 messages)
+//   - log.origin.stack_trace at ~25% presence (pool-based stack traces)
+//
+// stackTraceGen should be a pre-pooled generator such as GoStackTrace or
+// JavaStackTrace. Pass nil to use a default Go stack trace pool.
+func ErrorMessageAttrs(rng *rand.Rand, stackTraceGen ArgGenerator) []AttrGen {
+	errorMsgGen := RandomFrom(commonErrorMessages...)
+	if stackTraceGen == nil {
+		stackTraceGen = GoStackTrace(220, 1500, rng)
+	}
+	return []AttrGen{
+		{"error.message", OptionalAttr(0.60, errorMsgGen)},
+		{"log.origin.stack_trace", OptionalAttr(0.20, stackTraceGen)},
+	}
+}
+
+// appendCrossCutting appends the cross-cutting attrs to every MessageTemplate
+// in the slice and returns the modified slice.
+func appendCrossCutting(msgs []MessageTemplate, extra []AttrGen) []MessageTemplate {
+	for i := range msgs {
+		msgs[i].Attrs = append(msgs[i].Attrs, extra...)
+	}
+	return msgs
+}

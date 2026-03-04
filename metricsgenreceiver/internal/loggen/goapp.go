@@ -18,15 +18,17 @@ func GoAppProfile(rng *rand.Rand) *AppProfile {
 	if rng == nil {
 		rng = rand.New(rand.NewSource(0))
 	}
+	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(220, 1500, rng))
+	msgs := append(
+		append(goAppInfoLogs(), goAppDebugLogs(rng)...),
+		goAppWarnLogs(rng)...,
+	)
 	return &AppProfile{
 		Name:             "goapp",
 		ScopeName:        "io.opentelemetry.goapp",
 		SeverityWeights:  DefaultSeverityWeights(),
 		EmitTraceContext: true,
-		Messages: append(
-			append(goAppInfoLogs(), goAppDebugLogs(rng)...),
-			goAppWarnLogs(rng)...,
-		),
+		Messages:         appendCrossCutting(msgs, crossCutting),
 	}
 }
 

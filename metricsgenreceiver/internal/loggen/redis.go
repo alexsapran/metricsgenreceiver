@@ -14,14 +14,16 @@ func RedisProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		rng = rand.New(rand.NewSource(0))
 	}
 	zipfIP := ZipfianIP(5000, rng, ipCfg)
+	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(220, 1500, rng))
+	msgs := append(
+		append(redisInfoLogs(zipfIP), redisDebugLogs(zipfIP, rng)...),
+		redisWarnLogs(rng)...,
+	)
 	return &AppProfile{
 		Name:            "redis",
 		ScopeName:       "io.opentelemetry.redis",
 		SeverityWeights: DefaultSeverityWeights(),
-		Messages: append(
-			append(redisInfoLogs(zipfIP), redisDebugLogs(zipfIP, rng)...),
-			redisWarnLogs(rng)...,
-		),
+		Messages:        appendCrossCutting(msgs, crossCutting),
 	}
 }
 

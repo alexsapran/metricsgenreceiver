@@ -46,14 +46,16 @@ func NginxProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	if rng == nil {
 		rng = rand.New(rand.NewSource(0))
 	}
+	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(220, 1500, rng))
+	msgs := append(
+		append(nginxAccessLogs(rng, ipCfg), nginxDebugLogs()...),
+		nginxWarnLogs(rng, ipCfg)...,
+	)
 	return &AppProfile{
 		Name:            "nginx",
 		ScopeName:       "io.opentelemetry.nginx",
 		SeverityWeights: DefaultSeverityWeights(),
-		Messages: append(
-			append(nginxAccessLogs(rng, ipCfg), nginxDebugLogs()...),
-			nginxWarnLogs(rng, ipCfg)...,
-		),
+		Messages:        appendCrossCutting(msgs, crossCutting),
 	}
 }
 

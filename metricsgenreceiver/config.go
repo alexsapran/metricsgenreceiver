@@ -50,12 +50,19 @@ type LogScenarioCfg struct {
 	DiurnalProfile   *DiurnalProfileCfg `mapstructure:"diurnal_profile"`
 	// SeverityWeights overrides the profile's default severity distribution.
 	// Cumulative percentages for [TRACE, DEBUG, INFO, WARN, ERROR, FATAL].
-	// e.g. [0, 2, 87, 94, 99, 100] = 0% TRACE, 2% DEBUG, 85% INFO, 7% WARN, 5% ERROR, 1% FATAL.
+	// e.g. [0, 3, 85, 93, 100, 100] = 0% TRACE, 3% DEBUG, 82% INFO, 8% WARN, 7% ERROR, 0% FATAL.
 	// If nil or all zeros, the profile default is used.
 	SeverityWeights *[6]int `mapstructure:"severity_weights"`
 	// IPPool configures the IP address pool used for generating net.peer.ip and similar fields.
 	// When nil, defaults are used: CIDRs=["10.0.0.0/8"], pool size=scale*10, zipf_skew=1.5.
 	IPPool *IPPoolCfg `mapstructure:"ip_pool"`
+	// InstanceVolumeSkew applies a log-normal distribution to per-instance log counts.
+	// The value is the sigma (standard deviation) of the underlying normal distribution.
+	// Higher values produce wider spread: 0 = flat (all instances equal),
+	// 1.0 = moderate variation (~0.3x to ~3x), 1.5 = wide (~0.1x to ~5x).
+	// Multipliers are computed once at init from the global seed, so output is deterministic.
+	// The mean multiplier is normalized to 1.0, preserving total volume.
+	InstanceVolumeSkew float64 `mapstructure:"instance_volume_skew"`
 }
 
 type IPPoolCfg struct {
@@ -192,6 +199,9 @@ func (cfg *Config) Validate() error {
 		}
 		if err := validateIPPool(scn.IPPool); err != nil {
 			return fmt.Errorf("log_scenarios: %w", err)
+		}
+		if scn.InstanceVolumeSkew < 0 {
+			return fmt.Errorf("log_scenarios: instance_volume_skew must be non-negative (got %f)", scn.InstanceVolumeSkew)
 		}
 	}
 	return nil

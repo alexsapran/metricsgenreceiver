@@ -68,13 +68,13 @@ func TestSeverityDistribution(t *testing.T) {
 		counts[sev]++
 	}
 
-	// DefaultSeverityWeights [0, 2, 87, 94, 99, 100]:
-	// TRACE ~0%, DEBUG ~2%, INFO ~85%, WARN ~7%, ERROR ~5%, FATAL ~1%
-	assert.InDelta(t, 0.02, float64(counts[plog.SeverityNumberDebug])/n, 0.02, "DEBUG ~2%%")
-	assert.InDelta(t, 0.85, float64(counts[plog.SeverityNumberInfo])/n, 0.05, "INFO ~85%%")
-	assert.InDelta(t, 0.07, float64(counts[plog.SeverityNumberWarn])/n, 0.05, "WARN ~7%%")
-	assert.InDelta(t, 0.05, float64(counts[plog.SeverityNumberError])/n, 0.03, "ERROR ~5%%")
-	assert.InDelta(t, 0.01, float64(counts[plog.SeverityNumberFatal])/n, 0.02, "FATAL ~1%%")
+	// DefaultSeverityWeights [0, 3, 85, 93, 100, 100]:
+	// TRACE ~0%, DEBUG ~3%, INFO ~82%, WARN ~8%, ERROR ~7%, FATAL ~0%
+	assert.InDelta(t, 0.03, float64(counts[plog.SeverityNumberDebug])/n, 0.02, "DEBUG ~3%%")
+	assert.InDelta(t, 0.82, float64(counts[plog.SeverityNumberInfo])/n, 0.05, "INFO ~82%%")
+	assert.InDelta(t, 0.08, float64(counts[plog.SeverityNumberWarn])/n, 0.05, "WARN ~8%%")
+	assert.InDelta(t, 0.07, float64(counts[plog.SeverityNumberError])/n, 0.03, "ERROR ~7%%")
+	assert.Equal(t, 0, counts[plog.SeverityNumberFatal], "FATAL ~0%%")
 }
 
 func TestParseSeverity(t *testing.T) {

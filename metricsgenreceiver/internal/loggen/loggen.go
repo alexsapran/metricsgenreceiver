@@ -35,9 +35,9 @@ func ParseSeverity(s string) plog.SeverityNumber {
 }
 
 // DefaultSeverityWeights returns realistic production severity distribution:
-// TRACE 0.5%, DEBUG 2%, INFO 85%, WARN 7%, ERROR 5%, FATAL 0.5%
+// TRACE 0%, DEBUG 3%, INFO 82%, WARN 8%, ERROR 7%, FATAL 0%
 func DefaultSeverityWeights() [6]int {
-	return [6]int{0, 2, 87, 94, 99, 100}
+	return [6]int{0, 3, 85, 93, 100, 100}
 }
 
 // AppProfile defines a log-generating application's behavior.
@@ -48,7 +48,7 @@ type AppProfile struct {
 	// Messages contains all message templates. GenerateLogRecord picks by severity.
 	Messages []MessageTemplate
 	// SeverityWeights: cumulative weights for TRACE, DEBUG, INFO, WARN, ERROR, FATAL.
-	// e.g. [0, 2, 87, 94, 99, 100] means 0.5% TRACE, 2% DEBUG, 85% INFO, 7% WARN, 5% ERROR, 0.5% FATAL
+	// e.g. [0, 3, 85, 93, 100, 100] means 0% TRACE, 3% DEBUG, 82% INFO, 8% WARN, 7% ERROR, 0% FATAL
 	SeverityWeights [6]int
 	// EmitTraceContext controls whether trace_id and span_id are set on log records.
 	// Only profiles representing instrumented applications (e.g. Go with OTel SDK)

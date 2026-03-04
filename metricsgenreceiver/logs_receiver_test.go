@@ -458,6 +458,144 @@ func TestLogsGenReceiver_VolumeProfile_Deterministic(t *testing.T) {
 	assert.Equal(t, json1, json2, "same seed and volume_profile must produce identical output")
 }
 
+func TestBuildInstanceMultipliers_Nil_WhenZeroSigma(t *testing.T) {
+	rng := rand.New(rand.NewSource(42))
+	assert.Nil(t, buildInstanceMultipliers(rng, 10, 0))
+}
+
+func TestBuildInstanceMultipliers_Nil_WhenZeroScale(t *testing.T) {
+	rng := rand.New(rand.NewSource(42))
+	assert.Nil(t, buildInstanceMultipliers(rng, 0, 1.5))
+}
+
+func TestBuildInstanceMultipliers_Deterministic(t *testing.T) {
+	m1 := buildInstanceMultipliers(rand.New(rand.NewSource(42)), 100, 1.5)
+	m2 := buildInstanceMultipliers(rand.New(rand.NewSource(42)), 100, 1.5)
+	assert.Equal(t, m1, m2, "same seed must produce identical multipliers")
+
+	m3 := buildInstanceMultipliers(rand.New(rand.NewSource(99)), 100, 1.5)
+	assert.NotEqual(t, m1, m3, "different seeds must produce different multipliers")
+}
+
+func TestBuildInstanceMultipliers_MeanIsOne(t *testing.T) {
+	rng := rand.New(rand.NewSource(42))
+	m := buildInstanceMultipliers(rng, 1000, 1.5)
+	require.Len(t, m, 1000)
+	sum := 0.0
+	for _, v := range m {
+		sum += v
+	}
+	mean := sum / float64(len(m))
+	assert.InDelta(t, 1.0, mean, 0.001, "mean multiplier must be ~1.0")
+}
+
+func TestBuildInstanceMultipliers_HasVariation(t *testing.T) {
+	rng := rand.New(rand.NewSource(42))
+	m := buildInstanceMultipliers(rng, 100, 1.5)
+	min, max := m[0], m[0]
+	for _, v := range m[1:] {
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+	}
+	assert.Less(t, min, 0.5, "with sigma 1.5, some instances should be well below 1.0")
+	assert.Greater(t, max, 2.0, "with sigma 1.5, some instances should be well above 1.0")
+}
+
+func TestApplyInstanceMultiplier_NilPassthrough(t *testing.T) {
+	assert.Equal(t, 20, applyInstanceMultiplier(20, nil, 0))
+}
+
+func TestApplyInstanceMultiplier_ScalesValue(t *testing.T) {
+	multipliers := []float64{0.5, 2.0, 1.0}
+	assert.Equal(t, 5, applyInstanceMultiplier(10, multipliers, 0))
+	assert.Equal(t, 20, applyInstanceMultiplier(10, multipliers, 1))
+	assert.Equal(t, 10, applyInstanceMultiplier(10, multipliers, 2))
+}
+
+func TestApplyInstanceMultiplier_FloorIsOne(t *testing.T) {
+	multipliers := []float64{0.001}
+	assert.Equal(t, 1, applyInstanceMultiplier(10, multipliers, 0))
+}
+
+func TestLogsGenReceiver_InstanceVolumeSkew_Deterministic(t *testing.T) {
+	startTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	makeCfg := func() *Config {
+		return &Config{
+			StartTime: startTime,
+			EndTime:   startTime.Add(3 * time.Second),
+			Interval:  1 * time.Second,
+			Seed:      42,
+			RealTime:  false,
+			LogScenarios: []LogScenarioCfg{
+				{
+					Path:               "builtin/simple",
+					Scale:              5,
+					LogsPerInterval:    20,
+					InstanceVolumeSkew: 1.5,
+				},
+			},
+		}
+	}
+	logs1 := runLogsReceiverUntilDone(t, makeCfg())
+	logs2 := runLogsReceiverUntilDone(t, makeCfg())
+	json1, err := marshalLogsToJSON(logs1)
+	require.NoError(t, err)
+	json2, err := marshalLogsToJSON(logs2)
+	require.NoError(t, err)
+	assert.Equal(t, json1, json2, "same seed and instance_volume_skew must produce identical output")
+}
+
+func TestLogsGenReceiver_InstanceVolumeSkew_UnevenCounts(t *testing.T) {
+	startTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := &Config{
+		StartTime: startTime,
+		EndTime:   startTime.Add(2 * time.Second),
+		Interval:  1 * time.Second,
+		Seed:      42,
+		RealTime:  false,
+		LogScenarios: []LogScenarioCfg{
+			{
+				Path:               "builtin/simple",
+				Scale:              10,
+				LogsPerInterval:    50,
+				InstanceVolumeSkew: 1.5,
+			},
+		},
+	}
+	require.NoError(t, cfg.Validate())
+	logs := runLogsReceiverUntilDone(t, cfg)
+
+	counts := make(map[string]int)
+	for _, batch := range logs {
+		for i := 0; i < batch.ResourceLogs().Len(); i++ {
+			rl := batch.ResourceLogs().At(i)
+			pod := "unknown"
+			if v, ok := rl.Resource().Attributes().Get("k8s.pod.name"); ok {
+				pod = v.Str()
+			}
+			for j := 0; j < rl.ScopeLogs().Len(); j++ {
+				counts[pod] += rl.ScopeLogs().At(j).LogRecords().Len()
+			}
+		}
+	}
+	vals := make([]int, 0, len(counts))
+	for _, c := range counts {
+		vals = append(vals, c)
+	}
+	allSame := true
+	for _, v := range vals[1:] {
+		if v != vals[0] {
+			allSame = false
+			break
+		}
+	}
+	assert.False(t, allSame, "with instance_volume_skew=1.5, pod log counts should not all be equal: %v", vals)
+}
+
 func TestDiurnalMultiplier(t *testing.T) {
 	t.Run("nil config returns 1.0", func(t *testing.T) {
 		assert.Equal(t, 1.0, diurnalMultiplier(time.Now(), nil))

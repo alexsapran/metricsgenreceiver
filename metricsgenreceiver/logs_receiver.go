@@ -41,10 +41,11 @@ type LogsGenReceiver struct {
 }
 
 type LogScenario struct {
-	config    LogScenarioCfg
-	resources []pcommon.Resource
-	prepared  *loggen.PreparedProfile
-	volume    volumeState
+	config              LogScenarioCfg
+	resources           []pcommon.Resource
+	prepared            *loggen.PreparedProfile
+	volume              volumeState
+	instanceMultipliers []float64
 }
 
 type volumeState struct {
@@ -114,6 +115,38 @@ func resolveVolumeMultiplier(vs *volumeState, rng *rand.Rand, vp *VolumeProfileC
 	default:
 		return 1.0
 	}
+}
+
+func applyInstanceMultiplier(baseLogs int, multipliers []float64, idx int) int {
+	if multipliers == nil {
+		return baseLogs
+	}
+	n := int(math.Round(float64(baseLogs) * multipliers[idx]))
+	if n < 1 && baseLogs > 0 {
+		n = 1
+	}
+	return n
+}
+
+// buildInstanceMultipliers pre-computes a per-instance volume multiplier using
+// a log-normal distribution seeded from rng. The returned slice has length
+// equal to scale; each element is a multiplier around 1.0. When sigma is 0 the
+// slice is nil (flat distribution, no extra work on the hot path).
+func buildInstanceMultipliers(rng *rand.Rand, scale int, sigma float64) []float64 {
+	if sigma == 0 || scale == 0 {
+		return nil
+	}
+	m := make([]float64, scale)
+	sum := 0.0
+	for i := range m {
+		m[i] = math.Exp(sigma * rng.NormFloat64())
+		sum += m[i]
+	}
+	mean := sum / float64(scale)
+	for i := range m {
+		m[i] /= mean
+	}
+	return m
 }
 
 type LogsProgress struct {
@@ -190,6 +223,10 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 		for _, needle := range scn.Needles {
 			needleNames[needle.Name] = struct{}{}
 		}
+	}
+
+	for i := range scenarios {
+		scenarios[i].instanceMultipliers = buildInstanceMultipliers(baseRand, scenarios[i].config.Scale, scenarios[i].config.InstanceVolumeSkew)
 	}
 
 	needleOccurrences := make(map[string]*atomic.Uint64, len(needleNames))
@@ -324,8 +361,9 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 			var bodyBuf []byte
 			for i := 0; i < scn.config.Scale; i++ {
 				resource := scn.resources[i]
+				instanceLogs := applyInstanceMultiplier(effectiveLogs, scn.instanceMultipliers, i)
 				var n int
-				n, bodyBuf = r.produceLogsForInstance(ctx, r.baseRand, currentTime, *scn, resource, shard, effectiveLogs, reusableAttrs, argsBuf, bodyBuf)
+				n, bodyBuf = r.produceLogsForInstance(ctx, r.baseRand, currentTime, *scn, resource, shard, instanceLogs, reusableAttrs, argsBuf, bodyBuf)
 				totalLogs += uint64(n)
 			}
 			continue
@@ -348,8 +386,9 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 				for j := 0; j < scale/concurrency; j++ {
 					idx := j + wi*scale/concurrency
 					resource := scenario.resources[idx]
+					instanceLogs := applyInstanceMultiplier(logs, scenario.instanceMultipliers, idx)
 					var n int
-					n, bodyBuf = r.produceLogsForInstance(ctx, rng, currentTime, scenario, resource, sh, logs, reusableAttrs, argsBuf, bodyBuf)
+					n, bodyBuf = r.produceLogsForInstance(ctx, rng, currentTime, scenario, resource, sh, instanceLogs, reusableAttrs, argsBuf, bodyBuf)
 					count += uint64(n)
 				}
 				atomic.AddUint64(&totalLogs, count)

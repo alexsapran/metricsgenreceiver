@@ -187,6 +187,20 @@ receivers:
       cidrs: ["10.0.0.0/16", "172.16.0.0/12"]
       zipf_skew: 2.0
     ```
+  * `instance_volume_skew` (default `0`): applies a log-normal distribution to per-instance log counts so that
+    not all pods/nodes produce the same volume. The value is the sigma (standard deviation) of the underlying
+    normal distribution. Higher values produce wider spread:
+    * `0` — flat: all instances emit exactly `logs_per_interval` logs (default).
+    * `1.0` — moderate: instances range from ~0.3x to ~3x the base rate.
+    * `1.5` — wide: instances range from ~0.1x to ~5x the base rate.
+
+    Multipliers are pre-computed once at init from the global seed, so output is fully deterministic.
+    The mean multiplier is normalized to 1.0, preserving total volume across all instances.
+
+    Example:
+    ```yaml
+    instance_volume_skew: 1.5
+    ```
   * `needles`: optional list of needle configurations for injecting specific log messages at a given rate (useful for testing alerting).
     * `name`: unique identifier for the needle.
     * `message`: the log body to inject.

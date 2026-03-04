@@ -12,16 +12,20 @@ flowchart LR
     Base["logs_per_interval<br/>(flat base rate)"]
     Diurnal["diurnal_profile<br/>(time-of-day curve)"]
     Volume["volume_profile<br/>(random bursts/quiet)"]
+    Skew["instance_volume_skew<br/>(per-instance multiplier)"]
     Record["Per-record generation<br/>(severity, body, attrs)"]
 
-    Base -->|"×"| Diurnal -->|"×"| Volume -->|"per instance"| Record
+    Base -->|"×"| Diurnal -->|"×"| Volume -->|"×"| Skew -->|"per instance"| Record
 ```
 
 The effective number of log records per instance per interval is:
 
 ```
-effective_logs = logs_per_interval × diurnal_multiplier(currentTime) × volume_multiplier(rng)
+effective_logs = logs_per_interval × diurnal_multiplier(currentTime) × volume_multiplier(rng) × instance_multiplier[i]
 ```
+
+The `instance_multiplier` is pre-computed once at init from the global seed using a log-normal distribution
+controlled by `instance_volume_skew` (sigma). When `instance_volume_skew` is 0 (default), all multipliers are 1.0.
 
 Each record then receives:
 - **Severity** selected from `severity_weights`

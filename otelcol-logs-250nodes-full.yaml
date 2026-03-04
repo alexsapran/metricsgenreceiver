@@ -7,24 +7,48 @@ receivers:
     exit_after_end: true
     seed: 42
     log_scenarios:
-      # Nginx ingress controller — dedicated ingress nodes
+      # ── cluster topology (30 nodes, 298 pods, 9 services) ────
+      # Pods land on node = InstanceID % nodes. Scenarios with overlapping
+      # node ranges simulate colocation (multiple services per node).
+      #
+      #   Scenario   nodes  scale  pods/node  base/interval  actual avg/interval
+      #   ─────────  ─────  ─────  ─────────  ─────────────  ───────────────────
+      #   nginx         30    120      4        2,400          12,488
+      #   mysql         10     20      2          120             603
+      #   redis         10     50     ~5          400             401
+      #   goapp         27     54      2          540           2,775
+      #   proxy         18     54      3        2,160          11,063
+      #                                  base ≈5,620/5s   actual ≈27,330/5s
+      #
+      # "base" = scale × logs_per_interval (no volume modulation).
+      # "actual avg" = observed mean over 4h with volume_profile bursts
+      #   and instance_volume_skew applied. Total: ~78.7M logs / 4h.
+      #
+      # Node colocation tiers (30 distinct nodes):
+      #   nodes 0-9   (10)  → nginx + mysql + redis + goapp + proxy
+      #   nodes 10-17  (8)  → nginx + goapp + proxy
+      #   nodes 18-26  (9)  → nginx + goapp
+      #   nodes 27-29  (3)  → nginx only
+
+      # Nginx ingress controller — 4 pods/node on 30 nodes (45.7% of total volume)
       - path: builtin/k8s-nginx
-        scale: 45                      # 15 nodes × 3 pods/node
-        logs_per_interval: 120         # access logs are high-volume
-        concurrency: 15
+        scale: 120                     # 30 nodes × 4 pods/node
+        logs_per_interval: 20          # base: 120 × 20 = 2,400/interval
+        concurrency: 4
+        instance_volume_skew: 1.5
         template_vars:
-          nodes: 15
-          pods_per_node: 3
+          nodes: 30
+          pods_per_node: 4
         volume_profile:
-          burst_probability: 0.08      # chance (0.0–1.0) of entering a burst each interval
-          burst_multiplier_min: 2.0    # minimum logs multiplier during a burst
-          burst_multiplier_max: 8.0    # maximum logs multiplier during a burst
-          burst_duration_min: 8        # minimum consecutive intervals a burst lasts
-          burst_duration_max: 24       # maximum consecutive intervals a burst lasts, 120 seconds
-          quiet_probability: 0.03      # chance (0.0–1.0) of entering a quiet period each interval
-          quiet_multiplier: 0.2        # logs multiplier during a quiet period (0.2 = 20% of baseline)
-          quiet_duration_min: 8        # minimum consecutive intervals a quiet period lasts
-          quiet_duration_max: 24       # maximum consecutive intervals a quiet period lasts
+          burst_probability: 0.3
+          burst_multiplier_min: 2.0
+          burst_multiplier_max: 10.0
+          burst_duration_min: 8
+          burst_duration_max: 30
+          quiet_probability: 0.03
+          quiet_multiplier: 0.2
+          quiet_duration_min: 8
+          quiet_duration_max: 24
         needles:
           - name: upstream_timeout
             message: "upstream timed out (110: Connection timed out) while connecting to upstream"
@@ -34,13 +58,25 @@ receivers:
               error.type: "timeout"
               upstream.host: "backend-svc:8080"
 
-      # MySQL database — StatefulSets on dedicated DB nodes
+      # MySQL database — StatefulSet on 10 nodes (2.2% of total volume)
       - path: builtin/k8s-mysql
         scale: 20                      # 10 nodes × 2 pods/node
-        logs_per_interval: 8
-        concurrency: 10
+        logs_per_interval: 6           # base: 20 × 6 = 120/interval
+        concurrency: 1
         template_vars:
           nodes: 10
+          pods_per_node: 2
+        instance_volume_skew: 1.2
+        volume_profile:
+          burst_probability: 0.3
+          burst_multiplier_min: 2.0
+          burst_multiplier_max: 10.0
+          burst_duration_min: 8
+          burst_duration_max: 24
+          quiet_probability: 0.03
+          quiet_multiplier: 0.2
+          quiet_duration_min: 8
+          quiet_duration_max: 24
         needles:
           - name: deadlock
             message: "LATEST DETECTED DEADLOCK in transaction 0x7f2a1c003e80"
@@ -53,33 +89,71 @@ receivers:
             rate: 0.0002
             severity: FATAL
 
-      # Redis cache — small clusters with masters + replicas
+      # Redis cache — ~5 pods/node on 10 nodes (1.5% of total volume)
       - path: builtin/k8s-redis
-        scale: 16                      # 8 nodes × 2 pods/node
-        logs_per_interval: 12
-        concurrency: 8
+        scale: 50                      # 50 pods across 10 nodes (~5 pods/node)
+        logs_per_interval: 8           # base: 50 × 8 = 400/interval
+        instance_volume_skew: 1.02
+        concurrency: 2
         template_vars:
-          nodes: 8
+          nodes: 10
 
-      # Go microservices — full scale (6 pods/node across 250 nodes)
+      # Go microservices — 2 pods/node on 27 nodes (10.2% of total volume)
+      # 5 sub-services: api-gateway, user-service, order-service,
+      #   payment-service, notification-service
       - path: builtin/k8s-goapp
-        scale: 1500                    # 250 nodes × 6 pods/node
-        logs_per_interval: 25
-        concurrency: 50
-        emit_trace_context: false       # simulate OTel-instrumented apps with trace/span IDs
+        scale: 54                      # 27 nodes × 2 pods/node
+        logs_per_interval: 10          # base: 54 × 10 = 540/interval
+        concurrency: 6
+        emit_trace_context: false
         template_vars:
-          nodes: 250
+          nodes: 27
+          pods_per_node: 2
+        instance_volume_skew: 1.8
         needles:
           - name: panic_recovery
             message: '{"level":"fatal","ts":"2025-01-01T00:00:00Z","caller":"main.go:42","msg":"panic recovered","error":"runtime error: index out of range [5] with length 3","stacktrace":"goroutine 1 [running]:\nmain.handleRequest()"}'
             rate: 0.0001
             severity: FATAL
+        volume_profile:
+          burst_probability: 0.3
+          burst_multiplier_min: 2.0
+          burst_multiplier_max: 10.0
+          burst_duration_min: 8
+          burst_duration_max: 24
+          quiet_probability: 0.03
+          quiet_multiplier: 0.2
+          quiet_duration_min: 8
+          quiet_duration_max: 24
 
-#      # Simple log template (for testing)
-#      - path: builtin/simple
-#        scale: 5
-#        logs_per_interval: 10
-
+      # HTTP proxy / API gateway — 3 pods/node on 18 nodes (40.5% of total volume)
+      - path: builtin/k8s-proxy
+        scale: 54                      # 18 nodes × 3 pods/node
+        logs_per_interval: 40          # base: 54 × 40 = 2,160/interval
+        concurrency: 6
+        emit_trace_context: true
+        instance_volume_skew: 1.9
+        volume_profile:
+          burst_probability: 0.3
+          burst_multiplier_min: 2.0
+          burst_multiplier_max: 10.0
+          burst_duration_min: 8
+          burst_duration_max: 24
+          quiet_probability: 0.03
+          quiet_multiplier: 0.2
+          quiet_duration_min: 8
+          quiet_duration_max: 24
+        template_vars:
+          nodes: 18
+          pods_per_node: 3
+        needles:
+          - name: upstream_unavailable
+            message: "no healthy upstream instances available"
+            rate: 0.001
+            severity: ERROR
+            attributes:
+              error.type: "upstream_unavailable"
+              status_reason: "NO_AVAILABLE_INSTANCES"
 processors:
   batch:
 
@@ -92,17 +166,17 @@ exporters:
   file:
     path: ./file-exporter/logs-generated.json
   nop:
-  elasticsearch:
-    endpoints: [ https://localhost:9200 ]
-    user: elastic
-    password: changeme
-    num_workers: 2
-    sending_queue:
-      enabled: false
-    mapping:
-      mode: otel
-    tls:
-      insecure_skip_verify: true
+  # elasticsearch:
+  #   endpoints: [ https://localhost:9200 ]
+  #   user: elastic
+  #   password: changeme
+  #   num_workers: 2
+  #   sending_queue:
+  #     enabled: false
+  #   mapping:
+  #     mode: otel
+  #   tls:
+  #     insecure_skip_verify: true
 
 service:
 #  extensions: [pprof]

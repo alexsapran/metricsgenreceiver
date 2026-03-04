@@ -124,7 +124,7 @@ receivers:
           quiet_duration_min: 8        # minimum consecutive intervals a quiet period lasts
           quiet_duration_max: 24       # maximum consecutive intervals a quiet period lasts
         template_vars:
-          nodes: 5
+          nodes: 3
         needles:
           - name: upstream_unavailable
             message: "no healthy upstream instances available"

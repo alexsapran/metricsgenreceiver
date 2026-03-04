@@ -39,7 +39,7 @@ receivers:
         concurrency: 8
         emit_trace_context: true
         template_vars:
-          nodes: 5
+          nodes: 3
 
 exporters:
   nop:

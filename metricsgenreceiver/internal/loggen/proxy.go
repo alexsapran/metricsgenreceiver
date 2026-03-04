@@ -502,11 +502,13 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	)
 
 	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(220, 1500, rng))
+	longTail := LongTailAttrs(rng)
 	return &AppProfile{
 		Name:             "proxy",
 		ScopeName:        "io.opentelemetry.proxy",
 		SeverityWeights:  DefaultSeverityWeights(),
 		EmitTraceContext: true,
 		Messages:         appendCrossCutting(msgs, crossCutting),
+		LongTail:         longTail,
 	}
 }

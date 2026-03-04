@@ -19,6 +19,7 @@ func GoAppProfile(rng *rand.Rand) *AppProfile {
 		rng = rand.New(rand.NewSource(0))
 	}
 	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(220, 1500, rng))
+	longTail := LongTailAttrs(rng)
 	msgs := append(
 		append(goAppInfoLogs(), goAppDebugLogs(rng)...),
 		goAppWarnLogs(rng)...,
@@ -29,6 +30,7 @@ func GoAppProfile(rng *rand.Rand) *AppProfile {
 		SeverityWeights:  DefaultSeverityWeights(),
 		EmitTraceContext: true,
 		Messages:         appendCrossCutting(msgs, crossCutting),
+		LongTail:         longTail,
 	}
 }
 

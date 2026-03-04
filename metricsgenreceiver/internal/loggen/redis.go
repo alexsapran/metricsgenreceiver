@@ -15,6 +15,7 @@ func RedisProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	}
 	zipfIP := ZipfianIP(5000, rng, ipCfg)
 	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(220, 1500, rng))
+	longTail := LongTailAttrs(rng)
 	msgs := append(
 		append(redisInfoLogs(zipfIP), redisDebugLogs(zipfIP, rng)...),
 		redisWarnLogs(rng)...,
@@ -24,6 +25,7 @@ func RedisProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		ScopeName:       "io.opentelemetry.redis",
 		SeverityWeights: DefaultSeverityWeights(),
 		Messages:        appendCrossCutting(msgs, crossCutting),
+		LongTail:        longTail,
 	}
 }
 

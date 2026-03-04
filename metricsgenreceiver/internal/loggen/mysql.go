@@ -17,6 +17,7 @@ func MySQLProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	}
 	zipfIP := ZipfianIP(5000, rng, ipCfg)
 	crossCutting := ErrorMessageAttrs(rng, JavaStackTrace(220, 1500, rng))
+	longTail := LongTailAttrs(rng)
 	msgs := append(
 		append(mysqlInfoLogs(zipfIP), mysqlDebugLogs(rng)...),
 		mysqlWarnLogs(zipfIP, rng)...,
@@ -26,6 +27,7 @@ func MySQLProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		ScopeName:       "io.opentelemetry.mysql",
 		SeverityWeights: DefaultSeverityWeights(),
 		Messages:        appendCrossCutting(msgs, crossCutting),
+		LongTail:        longTail,
 	}
 }
 

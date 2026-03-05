@@ -14,7 +14,7 @@ func RedisProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		rng = rand.New(rand.NewSource(0))
 	}
 	zipfIP := ZipfianIP(5000, rng, ipCfg)
-	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(220, 1500, rng))
+	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(800, 8500, rng))
 	longTail := LongTailAttrs(rng)
 	msgs := append(
 		append(redisInfoLogs(zipfIP), redisDebugLogs(zipfIP, rng)...),
@@ -161,13 +161,13 @@ func redisWarnLogs(rng *rand.Rand) []MessageTemplate {
 		{
 			Severity: plog.SeverityNumberError,
 			Format:   "%d:%s %s # Error accepting a client connection: %s\n%s",
-			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomFrom("Connection reset by peer", "Invalid argument", "Too many open files"), RedisCrashReport(500, 2000, rng)},
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomFrom("Connection reset by peer", "Invalid argument", "Too many open files"), RedisCrashReport(1500, 8000, rng)},
 			Attrs:    []AttrGen{{"db.system", Static("redis")}},
 		},
 		{
 			Severity: plog.SeverityNumberError,
 			Format:   "%d:%s %s # Can't save in background: fork: Cannot allocate memory\n%s",
-			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RedisCrashReport(600, 3000, rng)},
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RedisCrashReport(2000, 8500, rng)},
 			Attrs:    []AttrGen{{"db.system", Static("redis")}},
 		},
 		{
@@ -185,19 +185,19 @@ func redisWarnLogs(rng *rand.Rand) []MessageTemplate {
 		{
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%d:%s %s # Fatal error, can't open config file '%s'\n%s",
-			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomFrom("/etc/redis/redis.conf", "/usr/local/etc/redis.conf"), RedisCrashReport(800, 4500, rng)},
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomFrom("/etc/redis/redis.conf", "/usr/local/etc/redis.conf"), RedisCrashReport(2000, 8500, rng)},
 			Attrs:    []AttrGen{{"db.system", Static("redis")}},
 		},
 		{
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%d:%s %s # === REDIS BUG REPORT START: Cut & paste starting from here ===\n%s",
-			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RedisCrashReport(1000, 5000, rng)},
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RedisCrashReport(2500, 8500, rng)},
 			Attrs:    []AttrGen{{"db.system", Static("redis")}},
 		},
 		{
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%d:%s %s # Fatal signal 11 (SIGSEGV) at 0x%x\n%s",
-			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomInt(0, 0xffffffff), RedisCrashReport(700, 4000, rng)},
+			Args:     []ArgGenerator{pid, role, Timestamp(tsLayout), RandomInt(0, 0xffffffff), RedisCrashReport(2000, 8500, rng)},
 			Attrs:    []AttrGen{{"db.system", Static("redis")}},
 		},
 	}

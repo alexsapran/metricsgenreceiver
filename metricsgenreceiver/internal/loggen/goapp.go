@@ -18,7 +18,7 @@ func GoAppProfile(rng *rand.Rand) *AppProfile {
 	if rng == nil {
 		rng = rand.New(rand.NewSource(0))
 	}
-	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(220, 1500, rng))
+	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(800, 8500, rng))
 	longTail := LongTailAttrs(rng)
 	msgs := append(
 		append(goAppInfoLogs(), goAppDebugLogs(rng)...),
@@ -211,7 +211,7 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 			Format:   `{"level":"error","ts":"%s","caller":"server/handler.go:%d","msg":"panic recovered","error":"%s","stacktrace":"%s"}`,
 			Args: []ArgGenerator{
 				Timestamp(tsLayout), RandomInt(45, 120),
-				RandomPath(goAppErrors), GoStackTrace(500, 2500, rng),
+				RandomPath(goAppErrors), GoStackTrace(1500, 8500, rng),
 			},
 			Attrs: []AttrGen{{"telemetry.sdk.language", Static("go")}},
 		},
@@ -220,7 +220,7 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 			Format:   `{"level":"error","ts":"%s","caller":"server/handler.go:%d","msg":"handler panic","error":"%s","request_id":"%s","stacktrace":"%s"}`,
 			Args: []ArgGenerator{
 				Timestamp(tsLayout), RandomInt(45, 120),
-				RandomPath(goAppErrors), RandomID(16), GoStackTrace(600, 3000, rng),
+				RandomPath(goAppErrors), RandomID(16), GoStackTrace(1500, 8500, rng),
 			},
 			Attrs: []AttrGen{{"telemetry.sdk.language", Static("go")}},
 		},
@@ -229,7 +229,7 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 			Format:   `{"level":"error","ts":"%s","caller":"db/query.go:%d","msg":"query panic","query":"SELECT * FROM %s","error":"%s","stacktrace":"%s"}`,
 			Args: []ArgGenerator{
 				Timestamp(tsLayout), RandomInt(80, 120),
-				RandomPath(mysqlTables), RandomPath(goAppErrors), GoStackTrace(500, 2000, rng),
+				RandomPath(mysqlTables), RandomPath(goAppErrors), GoStackTrace(1500, 8500, rng),
 			},
 			Attrs: []AttrGen{{"telemetry.sdk.language", Static("go")}},
 		},
@@ -239,7 +239,7 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 			Args: []ArgGenerator{
 				Timestamp(tsLayout), RandomInt(60, 95),
 				RandomPath(goAppServices), RandomPath(goAppGrpcMethods),
-				RandomPath(goAppErrors), JavaStackTrace(500, 2500, rng),
+				RandomPath(goAppErrors), JavaStackTrace(1500, 8500, rng),
 			},
 			AttrFromArg: map[string]int{"rpc.service": 2, "rpc.method": 3},
 			Attrs:       []AttrGen{{"telemetry.sdk.language", Static("go")}, {"rpc.system", Static("grpc")}},
@@ -264,7 +264,7 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 			Format:   `{"level":"fatal","ts":"%s","caller":"main.go:%d","msg":"unrecoverable panic","error":"%s","stacktrace":"%s"}`,
 			Args: []ArgGenerator{
 				Timestamp(tsLayout), RandomInt(40, 50),
-				RandomPath(goAppErrors), GoStackTrace(800, 4000, rng),
+				RandomPath(goAppErrors), GoStackTrace(2000, 8500, rng),
 			},
 			Attrs: []AttrGen{{"telemetry.sdk.language", Static("go")}},
 		},
@@ -273,7 +273,7 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 			Format:   `{"level":"fatal","ts":"%s","caller":"server/handler.go:%d","msg":"fatal: out of memory","error":"runtime: out of memory","stacktrace":"%s"}`,
 			Args: []ArgGenerator{
 				Timestamp(tsLayout), RandomInt(45, 120),
-				GoStackTrace(1000, 5000, rng),
+				GoStackTrace(2500, 8500, rng),
 			},
 			Attrs: []AttrGen{{"telemetry.sdk.language", Static("go")}},
 		},
@@ -282,7 +282,7 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 			Format:   `{"level":"fatal","ts":"%s","caller":"db/connection.go:%d","msg":"fatal: database unreachable","host":"%s","error":"%s","stacktrace":"%s"}`,
 			Args: []ArgGenerator{
 				Timestamp(tsLayout), RandomInt(50, 80),
-				RandomPath(goAppDbHosts), RandomPath(goAppErrors), GoStackTrace(600, 3500, rng),
+				RandomPath(goAppDbHosts), RandomPath(goAppErrors), GoStackTrace(1500, 8500, rng),
 			},
 			Attrs: []AttrGen{{"telemetry.sdk.language", Static("go")}},
 		},
@@ -291,7 +291,7 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 			Format:   `{"level":"fatal","ts":"%s","caller":"worker/processor.go:%d","msg":"fatal: worker panic","job_id":"%s","error":"%s","stacktrace":"%s"}`,
 			Args: []ArgGenerator{
 				Timestamp(tsLayout), RandomInt(70, 110),
-				RandomID(12), RandomPath(goAppErrors), GoStackTrace(700, 4000, rng),
+				RandomID(12), RandomPath(goAppErrors), GoStackTrace(2000, 8500, rng),
 			},
 			Attrs: []AttrGen{{"telemetry.sdk.language", Static("go")}, {"messaging.system", Static("rabbitmq")}},
 		},
@@ -300,7 +300,7 @@ func goAppWarnLogs(rng *rand.Rand) []MessageTemplate {
 			Format:   `{"level":"fatal","ts":"%s","caller":"grpc/client.go:%d","msg":"fatal: grpc connection lost","service":"%s","error":"%s","stacktrace":"%s"}`,
 			Args: []ArgGenerator{
 				Timestamp(tsLayout), RandomInt(60, 95),
-				RandomPath(goAppServices), RandomPath(goAppErrors), JavaStackTrace(800, 4500, rng),
+				RandomPath(goAppServices), RandomPath(goAppErrors), JavaStackTrace(2000, 8500, rng),
 			},
 			AttrFromArg: map[string]int{"rpc.service": 2},
 			Attrs:       []AttrGen{{"telemetry.sdk.language", Static("go")}, {"rpc.system", Static("grpc")}},

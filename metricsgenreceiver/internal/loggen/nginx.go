@@ -46,7 +46,7 @@ func NginxProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	if rng == nil {
 		rng = rand.New(rand.NewSource(0))
 	}
-	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(220, 1500, rng))
+	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(800, 8500, rng))
 	longTail := LongTailAttrs(rng)
 	msgs := append(
 		append(nginxAccessLogs(rng, ipCfg), nginxDebugLogs()...),
@@ -196,17 +196,17 @@ func nginxWarnLogs(rng *rand.Rand, ipCfg *IPPoolConfig) []MessageTemplate {
 		{
 			Severity: plog.SeverityNumberError,
 			Format:   "%s [error] %d#%d: *%d connect() failed (111: Connection refused) while connecting to upstream, client: %s, server: %s, request: \"GET %s HTTP/1.1\", upstream: \"http://%s:%d%s\"\n%s",
-			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server, path, upstreamIP, port, path, NginxErrorDetails(500, 2500, rng)},
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server, path, upstreamIP, port, path, NginxErrorDetails(1500, 6000, rng)},
 		},
 		{
 			Severity: plog.SeverityNumberError,
 			Format:   "%s [error] %d#%d: *%d upstream timed out (110: Connection timed out) while reading response header from upstream, client: %s, server: %s\n%s",
-			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server, NginxErrorDetails(500, 3000, rng)},
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server, NginxErrorDetails(1500, 7000, rng)},
 		},
 		{
 			Severity: plog.SeverityNumberError,
 			Format:   "%s [error] %d#%d: *%d no live upstreams while connecting to upstream, client: %s, server: %s\n%s",
-			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server, NginxErrorDetails(600, 3500, rng)},
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, connID, zipfIP, server, NginxErrorDetails(1500, 7000, rng)},
 		},
 		{
 			Severity: plog.SeverityNumberFatal,
@@ -221,17 +221,17 @@ func nginxWarnLogs(rng *rand.Rand, ipCfg *IPPoolConfig) []MessageTemplate {
 		{
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%s [emerg] %d#%d: host not found in upstream \"%s\" in /etc/nginx/conf.d/upstream.conf:3\n%s",
-			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, RandomFrom("backend-api", "mysql-primary", "redis-cache"), NginxErrorDetails(800, 4000, rng)},
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, RandomFrom("backend-api", "mysql-primary", "redis-cache"), NginxErrorDetails(2000, 7000, rng)},
 		},
 		{
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%s [emerg] %d#%d: bind() to 0.0.0.0:%d failed (98: Address already in use)\n%s",
-			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, RandomInt(80, 8080), NginxErrorDetails(700, 4500, rng)},
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, RandomInt(80, 8080), NginxErrorDetails(2000, 7000, rng)},
 		},
 		{
 			Severity: plog.SeverityNumberFatal,
 			Format:   "%s [emerg] %d#%d: malloc() failed (12: Cannot allocate memory)\n%s",
-			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, NginxErrorDetails(1000, 5000, rng)},
+			Args:     []ArgGenerator{Timestamp(tsLayout), pid, tid, NginxErrorDetails(2500, 8000, rng)},
 		},
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"strconv"
+	"strings"
 
 	"go.opentelemetry.io/collector/pdata/plog"
 )
@@ -20,17 +21,6 @@ func proxyHexN(rng *rand.Rand, n int) string {
 }
 
 const proxyPoolSize = 4096
-
-// proxyUUIDPool pre-generates UUIDs for hot-path lookup.
-func proxyUUIDPool(rng *rand.Rand) ArgGenerator {
-	pool := make([]string, proxyPoolSize)
-	for i := range pool {
-		pool[i] = RandomUUID(rng, GenContext{}).(string)
-	}
-	return func(r *rand.Rand, _ GenContext) any {
-		return pool[r.Intn(proxyPoolSize)]
-	}
-}
 
 // proxyLogNormalPool pre-generates log-normally distributed ints.
 func proxyLogNormalPool(rng *rand.Rand, median, sigma float64) ArgGenerator {
@@ -217,9 +207,9 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 
 	// --- Weighted generators matching real distributions ---
 
-	uuidGen := proxyUUIDPool(rng)
+	uuidGen := RandomUUID
 
-	requestPathGen := proxyWeightedStrPool(rng, []weightedStr{
+	staticPathGen := proxyWeightedStrPool(rng, []weightedStr{
 		{"/_bulk", 180}, {"/_security/_authenticate", 124}, {"/", 66},
 		{"/_security/user/_has_privileges", 54},
 		{"/.sysidx_task_manager/_msearch", 45},
@@ -245,6 +235,68 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		{"/_alias", 3}, {"/_mapping", 3},
 		{"/_index_template", 2}, {"/_ingest/pipeline", 2},
 	})
+
+	// Dynamic path pool: pre-generate ~8000 unique paths from templates with IDs
+	dynamicPathTemplates := []string{
+		"/.ds-logs-%s-default/_bulk",
+		"/.ds-metrics-%s-default/_bulk",
+		"/.ds-traces-%s-default/_bulk",
+		"/%s/_search",
+		"/%s/_bulk",
+		"/%s/_doc/%s",
+		"/%s/_update/%s",
+		"/%s/_mapping",
+		"/api/v1/%s/%s",
+		"/.kibana_%s/_search",
+		"/.sysidx_%s/_search",
+		"/.sysidx_%s/_bulk",
+		"/%s/_count",
+		"/%s/_refresh",
+		"/%s/_settings",
+	}
+	dynamicDatasets := []string{
+		"nginx.access", "system.syslog", "kubernetes.pod", "apm.app",
+		"elastic_agent", "endpoint.events", "cloud.audit", "fleet_server",
+		"synthetics.http", "profiling.events", "logs.generic", "metrics.generic",
+	}
+	dynamicIndices := []string{
+		".ds-logs-nginx.access-default-2024.01",
+		".ds-logs-system.syslog-default-2024.01",
+		".ds-metrics-kubernetes.pod-default-2024.01",
+		"logs-apm.app-default",
+		".fleet-actions-results",
+		".kibana_analytics",
+		".kibana_security_session",
+	}
+	const dynamicPathPoolSize = 8192
+	dynamicPathPool := make([]string, dynamicPathPoolSize)
+	for i := range dynamicPathPool {
+		tpl := dynamicPathTemplates[rng.Intn(len(dynamicPathTemplates))]
+		nPlaceholders := strings.Count(tpl, "%s")
+		switch nPlaceholders {
+		case 1:
+			item := dynamicDatasets[rng.Intn(len(dynamicDatasets))]
+			if rng.Intn(2) == 0 {
+				item = dynamicIndices[rng.Intn(len(dynamicIndices))]
+			}
+			dynamicPathPool[i] = fmt.Sprintf(tpl, item)
+		default:
+			item := dynamicIndices[rng.Intn(len(dynamicIndices))]
+			id := proxyHexN(rng, 12)
+			dynamicPathPool[i] = fmt.Sprintf(tpl, item, id)
+		}
+	}
+	dynamicPathGen := func(r *rand.Rand, _ GenContext) any {
+		return dynamicPathPool[r.Intn(dynamicPathPoolSize)]
+	}
+
+	// 70% static weighted paths, 30% dynamic paths
+	requestPathGen := func(r *rand.Rand, ctx GenContext) any {
+		if r.Intn(10) < 7 {
+			return staticPathGen(r, ctx)
+		}
+		return dynamicPathGen(r, ctx)
+	}
 
 	methodGen := proxyWeightedStrPool(rng, []weightedStr{
 		{"GET", 430}, {"POST", 380}, {"PUT", 180}, {"DELETE", 7}, {"HEAD", 3},
@@ -332,8 +384,8 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	})
 
 	// Numeric distributions calibrated from real percentiles
-	respTimeGen := proxyLogNormalPool(rng, 2, 3.0)
-	backendRespTimeGen := proxyLogNormalPool(rng, 2, 3.0)
+	respTimeGen := proxyLogNormalPool(rng, 5, 2.2)
+	backendRespTimeGen := proxyLogNormalPool(rng, 5, 2.2)
 	proxyTimeGen := proxyLogNormalPool(rng, 107, 0.3)
 	reqLenGen := proxyLogNormalPool(rng, 166, 3.5)
 	respLenGen := proxyLogNormalPool(rng, 482, 3.0)
@@ -501,7 +553,7 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		MessageTemplate{Severity: plog.SeverityNumberFatal, Attrs: fatalAttrs},
 	)
 
-	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(220, 1500, rng))
+	crossCutting := ErrorMessageAttrs(rng, GoStackTrace(800, 8500, rng))
 	longTail := LongTailAttrs(rng)
 	return &AppProfile{
 		Name:             "proxy",

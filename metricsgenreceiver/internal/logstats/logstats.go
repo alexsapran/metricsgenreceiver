@@ -213,19 +213,32 @@ func formatNumber(n uint64) string {
 
 // ShardedLogStats holds per-goroutine shards to avoid mutex contention.
 // Each shard is written by only one goroutine; Merge() combines them for Summary().
-// Only shard 0 tracks field cardinality to avoid duplicating large string sets.
+// Only designated cardinality shards track FieldCardinality to avoid duplicating
+// large string sets across all workers.
 type ShardedLogStats struct {
 	shards []*LogStats
 }
 
-func NewShardedLogStats(n int) *ShardedLogStats {
+// NewShardedLogStats creates n shards. cardinalityShards lists the indices
+// that should track FieldCardinality (typically shard 0 for the sequential
+// path plus the first shard of each concurrent scenario group). Passing nil
+// or empty enables cardinality on shard 0 only.
+func NewShardedLogStats(n int, cardinalityShards []int) *ShardedLogStats {
 	if n < 1 {
 		n = 1
 	}
+	track := make(map[int]struct{}, len(cardinalityShards))
+	if len(cardinalityShards) == 0 {
+		track[0] = struct{}{}
+	} else {
+		for _, idx := range cardinalityShards {
+			track[idx] = struct{}{}
+		}
+	}
 	shards := make([]*LogStats, n)
-	shards[0] = newLogStats(true)
-	for i := 1; i < n; i++ {
-		shards[i] = newLogStats(false)
+	for i := 0; i < n; i++ {
+		_, ok := track[i]
+		shards[i] = newLogStats(ok)
 	}
 	return &ShardedLogStats{shards: shards}
 }

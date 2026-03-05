@@ -236,9 +236,13 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 
 	// Shard 0: sequential scenarios (Concurrency==0). Shards 1+:
 	// unique shard per concurrent worker across all scenarios (they run in parallel).
+	// Track field cardinality on shard 0 plus the first worker shard of each
+	// concurrent scenario so every scenario contributes to the cardinality report.
 	totalConcurrentShards := 0
+	cardinalityShards := []int{0}
 	for _, scn := range cfg.LogScenarios {
 		if scn.Concurrency > 0 {
+			cardinalityShards = append(cardinalityShards, 1+totalConcurrentShards)
 			totalConcurrentShards += scn.Concurrency
 		}
 	}
@@ -246,7 +250,7 @@ func newLogsGenReceiver(cfg *Config, set receiver.Settings) (*LogsGenReceiver, e
 	if numShards < 1 {
 		numShards = 1
 	}
-	stats := logstats.NewShardedLogStats(numShards)
+	stats := logstats.NewShardedLogStats(numShards, cardinalityShards)
 
 	return &LogsGenReceiver{
 		cfg:               cfg,

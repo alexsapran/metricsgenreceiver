@@ -79,11 +79,11 @@ func TestLogStats_Summary_NoNeedles(t *testing.T) {
 }
 
 func TestNewShardedLogStats(t *testing.T) {
-	s := NewShardedLogStats(0)
+	s := NewShardedLogStats(0, nil)
 	require.NotNil(t, s)
 	assert.Len(t, s.shards, 1, "n<1 should default to 1 shard")
 
-	s = NewShardedLogStats(5)
+	s = NewShardedLogStats(5, nil)
 	require.NotNil(t, s)
 	assert.Len(t, s.shards, 5)
 	for i := range s.shards {
@@ -92,7 +92,7 @@ func TestNewShardedLogStats(t *testing.T) {
 }
 
 func TestShardedLogStats_Shard(t *testing.T) {
-	s := NewShardedLogStats(3)
+	s := NewShardedLogStats(3, nil)
 	res := pcommon.NewResource()
 	logs := plog.NewLogs()
 	lr := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
@@ -114,7 +114,7 @@ func TestShardedLogStats_Merge(t *testing.T) {
 	lr.SetSeverityText("INFO")
 	lr.Attributes().PutStr("http.status_code", "200")
 
-	s := NewShardedLogStats(3)
+	s := NewShardedLogStats(3, nil)
 	s.Shard(0).Record("INFO", res, lr)
 	s.Shard(0).Record("INFO", res, lr)
 	s.Shard(1).Record("WARN", res, lr)
@@ -147,10 +147,10 @@ func TestShardedLogStats_MergeFieldCardinality(t *testing.T) {
 	lr2.SetSeverityText("INFO")
 	lr2.Attributes().PutStr("attr", "y")
 
-	// Both records on shard 0 (the cardinality-tracking shard).
-	s := NewShardedLogStats(2)
+	// Shards 0 and 2 track cardinality (simulating sequential + first worker of a scenario).
+	s := NewShardedLogStats(3, []int{0, 2})
 	s.Shard(0).Record("INFO", res1, lr1)
-	s.Shard(0).Record("INFO", res2, lr2)
+	s.Shard(2).Record("INFO", res2, lr2)
 
 	merged := s.Merge()
 	require.NotNil(t, merged.FieldCardinality["custom.key"])
@@ -163,11 +163,12 @@ func TestShardedLogStats_MergeFieldCardinality(t *testing.T) {
 	assert.Contains(t, merged.FieldCardinality["attr"], "y")
 }
 
-func TestShardedLogStats_NonZeroShardsSkipCardinality(t *testing.T) {
-	s := NewShardedLogStats(3)
+func TestShardedLogStats_NonDesignatedShardsSkipCardinality(t *testing.T) {
+	// Shard 0 and 2 track cardinality; shard 1 does not.
+	s := NewShardedLogStats(3, []int{0, 2})
 	assert.True(t, s.shards[0].trackCardinality, "shard 0 should track cardinality")
 	assert.False(t, s.shards[1].trackCardinality, "shard 1 should not track cardinality")
-	assert.False(t, s.shards[2].trackCardinality, "shard 2 should not track cardinality")
+	assert.True(t, s.shards[2].trackCardinality, "shard 2 should track cardinality")
 
 	res := pcommon.NewResource()
 	res.Attributes().PutStr("service.name", "app")
@@ -179,7 +180,13 @@ func TestShardedLogStats_NonZeroShardsSkipCardinality(t *testing.T) {
 	s.Shard(1).Record("INFO", res, lr)
 	assert.Nil(t, s.shards[1].FieldCardinality, "shard 1 should not have cardinality data")
 
-	// Counts should still work on non-cardinality shards
 	assert.Equal(t, uint64(1), s.shards[1].TotalLogs)
 	assert.Equal(t, uint64(1), s.shards[1].ByApp["app"])
+}
+
+func TestShardedLogStats_NilCardinalityShardsDefaultsToZero(t *testing.T) {
+	s := NewShardedLogStats(3, nil)
+	assert.True(t, s.shards[0].trackCardinality, "shard 0 should track cardinality by default")
+	assert.False(t, s.shards[1].trackCardinality, "shard 1 should not track cardinality")
+	assert.False(t, s.shards[2].trackCardinality, "shard 2 should not track cardinality")
 }

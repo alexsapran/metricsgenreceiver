@@ -147,9 +147,10 @@ func TestShardedLogStats_MergeFieldCardinality(t *testing.T) {
 	lr2.SetSeverityText("INFO")
 	lr2.Attributes().PutStr("attr", "y")
 
+	// Both records on shard 0 (the cardinality-tracking shard).
 	s := NewShardedLogStats(2)
 	s.Shard(0).Record("INFO", res1, lr1)
-	s.Shard(1).Record("INFO", res2, lr2)
+	s.Shard(0).Record("INFO", res2, lr2)
 
 	merged := s.Merge()
 	require.NotNil(t, merged.FieldCardinality["custom.key"])
@@ -160,4 +161,25 @@ func TestShardedLogStats_MergeFieldCardinality(t *testing.T) {
 	assert.Len(t, merged.FieldCardinality["attr"], 2, "union: x and y")
 	assert.Contains(t, merged.FieldCardinality["attr"], "x")
 	assert.Contains(t, merged.FieldCardinality["attr"], "y")
+}
+
+func TestShardedLogStats_NonZeroShardsSkipCardinality(t *testing.T) {
+	s := NewShardedLogStats(3)
+	assert.True(t, s.shards[0].trackCardinality, "shard 0 should track cardinality")
+	assert.False(t, s.shards[1].trackCardinality, "shard 1 should not track cardinality")
+	assert.False(t, s.shards[2].trackCardinality, "shard 2 should not track cardinality")
+
+	res := pcommon.NewResource()
+	res.Attributes().PutStr("service.name", "app")
+	res.Attributes().PutStr("custom.key", "val")
+	logs := plog.NewLogs()
+	lr := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
+	lr.SetSeverityText("INFO")
+
+	s.Shard(1).Record("INFO", res, lr)
+	assert.Nil(t, s.shards[1].FieldCardinality, "shard 1 should not have cardinality data")
+
+	// Counts should still work on non-cardinality shards
+	assert.Equal(t, uint64(1), s.shards[1].TotalLogs)
+	assert.Equal(t, uint64(1), s.shards[1].ByApp["app"])
 }

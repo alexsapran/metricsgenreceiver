@@ -10,56 +10,62 @@ import (
 )
 
 type LogStats struct {
-	TotalLogs         uint64
-	BySeverity        map[string]uint64
-	ByApp             map[string]uint64
-	ByNode            map[string]uint64
-	ByNamespace       map[string]uint64
+	TotalLogs        uint64
+	BySeverity       map[string]uint64
+	ByApp            map[string]uint64
+	ByNode           map[string]uint64
+	ByNamespace      map[string]uint64
 	FieldCardinality map[string]map[string]struct{}
+	trackCardinality bool
+	cappedFields     map[string]struct{}
 }
 
-func NewLogStats() *LogStats {
-	return &LogStats{
-		BySeverity:      make(map[string]uint64),
-		ByApp:           make(map[string]uint64),
-		ByNode:          make(map[string]uint64),
-		ByNamespace:     make(map[string]uint64),
-		FieldCardinality: make(map[string]map[string]struct{}),
+func newLogStats(trackCardinality bool) *LogStats {
+	s := &LogStats{
+		BySeverity:       make(map[string]uint64),
+		ByApp:            make(map[string]uint64),
+		ByNode:           make(map[string]uint64),
+		ByNamespace:      make(map[string]uint64),
+		trackCardinality: trackCardinality,
 	}
+	if trackCardinality {
+		s.FieldCardinality = make(map[string]map[string]struct{})
+		s.cappedFields = make(map[string]struct{})
+	}
+	return s
+}
+
+// NewLogStats creates a LogStats that tracks field cardinality.
+func NewLogStats() *LogStats {
+	return newLogStats(true)
 }
 
 func (s *LogStats) Record(severityText string, resource pcommon.Resource, logRecord plog.LogRecord) {
-	// No lock: each shard is single-writer (one goroutine per shard).
 	s.TotalLogs++
 
-	// BySeverity
 	s.BySeverity[severityText]++
 
-	// ByApp (service.name)
 	if v, ok := resource.Attributes().Get("service.name"); ok {
-		app := valueToString(v)
-		s.ByApp[app]++
+		s.ByApp[valueToString(v)]++
 	}
 
-	// ByNode (k8s.node.name)
 	if v, ok := resource.Attributes().Get("k8s.node.name"); ok {
-		node := valueToString(v)
-		s.ByNode[node]++
+		s.ByNode[valueToString(v)]++
 	}
 
-	// ByNamespace (k8s.namespace.name)
 	if v, ok := resource.Attributes().Get("k8s.namespace.name"); ok {
-		ns := valueToString(v)
-		s.ByNamespace[ns]++
+		s.ByNamespace[valueToString(v)]++
 	}
 
-	// Field cardinality from resource attributes
+	if !s.trackCardinality {
+		return
+	}
+
 	resource.Attributes().Range(func(k string, v pcommon.Value) bool {
 		s.addCardinality(k, v)
 		return true
 	})
 
-	// Field cardinality from log record attributes
 	logRecord.Attributes().Range(func(k string, v pcommon.Value) bool {
 		s.addCardinality(k, v)
 		return true
@@ -69,8 +75,12 @@ func (s *LogStats) Record(severityText string, resource pcommon.Resource, logRec
 const maxFieldCardinality = 500
 
 func (s *LogStats) addCardinality(key string, v pcommon.Value) {
+	if _, capped := s.cappedFields[key]; capped {
+		return
+	}
 	existing := s.FieldCardinality[key]
 	if existing != nil && len(existing) >= maxFieldCardinality {
+		s.cappedFields[key] = struct{}{}
 		return
 	}
 	valStr := valueToString(v)
@@ -203,6 +213,7 @@ func formatNumber(n uint64) string {
 
 // ShardedLogStats holds per-goroutine shards to avoid mutex contention.
 // Each shard is written by only one goroutine; Merge() combines them for Summary().
+// Only shard 0 tracks field cardinality to avoid duplicating large string sets.
 type ShardedLogStats struct {
 	shards []*LogStats
 }
@@ -212,8 +223,9 @@ func NewShardedLogStats(n int) *ShardedLogStats {
 		n = 1
 	}
 	shards := make([]*LogStats, n)
-	for i := range shards {
-		shards[i] = NewLogStats()
+	shards[0] = newLogStats(true)
+	for i := 1; i < n; i++ {
+		shards[i] = newLogStats(false)
 	}
 	return &ShardedLogStats{shards: shards}
 }
@@ -238,12 +250,14 @@ func (s *ShardedLogStats) Merge() *LogStats {
 		for k, v := range shard.ByNamespace {
 			merged.ByNamespace[k] += v
 		}
-		for k, vals := range shard.FieldCardinality {
-			if merged.FieldCardinality[k] == nil {
-				merged.FieldCardinality[k] = make(map[string]struct{})
-			}
-			for v := range vals {
-				merged.FieldCardinality[k][v] = struct{}{}
+		if shard.FieldCardinality != nil {
+			for k, vals := range shard.FieldCardinality {
+				if merged.FieldCardinality[k] == nil {
+					merged.FieldCardinality[k] = make(map[string]struct{})
+				}
+				for v := range vals {
+					merged.FieldCardinality[k][v] = struct{}{}
+				}
 			}
 		}
 	}

@@ -359,13 +359,19 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 			reusableAttrs := make(map[string]any, 8)
 			argsBuf := make([]any, scn.prepared.MaxArgs())
 			var bodyBuf []byte
+			r.obsreport.StartLogsOp(ctx)
+			logs := plog.NewLogs()
 			for i := 0; i < scn.config.Scale; i++ {
-				resource := scn.resources[i]
 				instanceLogs := applyInstanceMultiplier(effectiveLogs, scn.instanceMultipliers, i)
-				var n int
-				n, bodyBuf = r.produceLogsForInstance(ctx, r.baseRand, currentTime, *scn, resource, shard, instanceLogs, reusableAttrs, argsBuf, bodyBuf)
-				totalLogs += uint64(n)
+				if instanceLogs <= 0 {
+					continue
+				}
+				bodyBuf = r.appendInstanceLogs(r.baseRand, currentTime, *scn, scn.resources[i], shard, instanceLogs, reusableAttrs, argsBuf, bodyBuf, &logs)
 			}
+			logCount := logs.LogRecordCount()
+			totalLogs += uint64(logCount)
+			err := r.nextLogs.ConsumeLogs(ctx, logs)
+			r.obsreport.EndLogsOp(ctx, metadata.Type.String(), logCount, err)
 			continue
 		}
 		scenario := *scn
@@ -382,16 +388,20 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 				reusableAttrs := make(map[string]any, 8)
 				argsBuf := make([]any, scenario.prepared.MaxArgs())
 				var bodyBuf []byte
-				var count uint64
+				r.obsreport.StartLogsOp(ctx)
+				batch := plog.NewLogs()
 				for j := 0; j < scale/concurrency; j++ {
 					idx := j + wi*scale/concurrency
-					resource := scenario.resources[idx]
 					instanceLogs := applyInstanceMultiplier(logs, scenario.instanceMultipliers, idx)
-					var n int
-					n, bodyBuf = r.produceLogsForInstance(ctx, rng, currentTime, scenario, resource, sh, instanceLogs, reusableAttrs, argsBuf, bodyBuf)
-					count += uint64(n)
+					if instanceLogs <= 0 {
+						continue
+					}
+					bodyBuf = r.appendInstanceLogs(rng, currentTime, scenario, scenario.resources[idx], sh, instanceLogs, reusableAttrs, argsBuf, bodyBuf, &batch)
 				}
-				atomic.AddUint64(&totalLogs, count)
+				logCount := batch.LogRecordCount()
+				atomic.AddUint64(&totalLogs, uint64(logCount))
+				err := r.nextLogs.ConsumeLogs(ctx, batch)
+				r.obsreport.EndLogsOp(ctx, metadata.Type.String(), logCount, err)
 			}(rng, shard, workerIdx, effectiveLogs)
 		}
 		concurrentShardBase += concurrency
@@ -400,14 +410,11 @@ func (r *LogsGenReceiver) produceLogs(ctx context.Context, currentTime time.Time
 	return totalLogs
 }
 
-func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.Rand, currentTime time.Time, scn LogScenario, instanceResource pcommon.Resource, statsShard *logstats.LogStats, logsPerInterval int, reusableAttrs map[string]any, argsBuf []any, bodyBuf []byte) (int, []byte) {
-	if logsPerInterval <= 0 {
-		return 0, bodyBuf
-	}
-
-	r.obsreport.StartLogsOp(ctx)
-	logs := plog.NewLogs()
-	rl := logs.ResourceLogs().AppendEmpty()
+// appendInstanceLogs generates log records for a single instance and appends
+// them as a new ResourceLogs entry into the provided batch. This avoids
+// allocating a separate plog.Logs per instance.
+func (r *LogsGenReceiver) appendInstanceLogs(rng *rand.Rand, currentTime time.Time, scn LogScenario, instanceResource pcommon.Resource, statsShard *logstats.LogStats, logsPerInterval int, reusableAttrs map[string]any, argsBuf []any, bodyBuf []byte, batch *plog.Logs) []byte {
+	rl := batch.ResourceLogs().AppendEmpty()
 	instanceResource.CopyTo(rl.Resource())
 
 	sl := rl.ScopeLogs().AppendEmpty()
@@ -463,7 +470,6 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 			}
 		}
 
-		// Deterministic needle injection: check each needle (always call rng.Float64 for determinism)
 		var replaced bool
 		for _, needle := range scn.config.Needles {
 			roll := rng.Float64()
@@ -495,10 +501,7 @@ func (r *LogsGenReceiver) produceLogsForInstance(ctx context.Context, rng *rand.
 		}
 	}
 
-	logCount := logs.LogRecordCount()
-	err := r.nextLogs.ConsumeLogs(ctx, logs)
-	r.obsreport.EndLogsOp(ctx, metadata.Type.String(), logCount, err)
-	return logCount, bodyBuf
+	return bodyBuf
 }
 
 func (r *LogsGenReceiver) getNewRand() *rand.Rand {

@@ -706,7 +706,7 @@ func buildGoStackTrace(r *rand.Rand, targetLen int) string {
 	b.WriteString("goroutine ")
 	b.WriteString(strconv.Itoa(r.Intn(100) + 1))
 	b.WriteString(" [running]:\n")
-	frames := 8 + r.Intn(25)
+	frames := 8 + r.Intn(80)
 	for i := 0; i < frames && b.Len() < targetLen; i++ {
 		pkg := goStackPackages[r.Intn(len(goStackPackages))]
 		b.WriteString(pkg)
@@ -764,7 +764,7 @@ func buildJavaStackTrace(r *rand.Rand, targetLen int) string {
 	b.WriteString(": ")
 	b.WriteString(msgs[r.Intn(len(msgs))])
 	b.WriteByte('\n')
-	frames := 10 + r.Intn(30)
+	frames := 10 + r.Intn(80)
 	for i := 0; i < frames && b.Len() < targetLen; i++ {
 		b.WriteString("\tat ")
 		b.WriteString(javaStackPackages[r.Intn(len(javaStackPackages))])

@@ -433,7 +433,9 @@ func (r *LogsGenReceiver) appendInstanceLogs(rng *rand.Rand, currentTime time.Ti
 		var sev plog.SeverityNumber
 		body, sev, bodyBuf = loggen.GenerateFromPreparedInto(rng, scn.prepared, instanceTime, reusableAttrs, argsBuf, bodyBuf)
 		lr.SetSeverityNumber(sev)
-		lr.SetSeverityText(severityText(sev))
+		if i%20 < 13 {
+			lr.SetSeverityText(severityText(sev))
+		}
 		lr.Body().SetStr(body)
 
 		for k, v := range reusableAttrs {

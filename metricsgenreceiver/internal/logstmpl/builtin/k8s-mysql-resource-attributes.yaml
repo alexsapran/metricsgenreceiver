@@ -1,6 +1,33 @@
 resourceLogs:
   - resource:
       attributes:
+        - key: cloud.account.id
+          value:
+            stringValue: "{{.RandomFrom `111111111111` `222222222222` `333333333333`}}"
+        - key: cloud.availability_zone
+          value:
+            stringValue: "{{.ModFrom .InstanceID `eu-west-1a` `eu-west-1b` `eu-west-1c`}}"
+        - key: cloud.platform
+          value:
+            stringValue: "EC2"
+        - key: cloud.provider
+          value:
+            stringValue: "aws"
+        - key: cloud.region
+          value:
+            stringValue: "eu-west-1"
+        - key: host.arch
+          value:
+            stringValue: "{{.RandomFrom `aarch64` `x86_64`}}"
+        - key: host.id
+          value:
+            stringValue: "{{.RandomHex 32}}"
+        - key: host.name
+          value:
+            stringValue: "ip-10-0-{{$nodes := 3}}{{if and .Vars .Vars.nodes}}{{$nodes = .Vars.nodes}}{{end}}{{.Mod .InstanceID $nodes}}-0.eu-west-1.compute.internal"
+        - key: host.type
+          value:
+            stringValue: "{{.RandomFrom `c6g.2xlarge` `c6g.4xlarge` `m6g.2xlarge`}}"
         - key: k8s.cluster.name
           value:
             stringValue: "{{.RandomFrom `production-cluster` `staging-cluster`}}"
@@ -49,9 +76,15 @@ resourceLogs:
         - key: k8s.pod.label.mysql.oracle.com/cluster
           value:
             stringValue: "mysql-cluster"
+        - key: k8s.node.uid
+          value:
+            stringValue: "{{.UUID}}"
         - key: k8s.statefulset.name
           value:
             stringValue: "mysql"
+        - key: os.type
+          value:
+            stringValue: "linux"
     scopeLogs:
       - scope:
           name: "log-generator"

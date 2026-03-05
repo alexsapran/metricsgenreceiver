@@ -37,6 +37,25 @@ func proxyLogNormalPool(rng *rand.Rand, median, sigma float64) ArgGenerator {
 	}
 }
 
+// proxyLogNormalPoolClamped is like proxyLogNormalPool but caps values at maxVal.
+func proxyLogNormalPoolClamped(rng *rand.Rand, median, sigma float64, maxVal int) ArgGenerator {
+	pool := make([]int, proxyPoolSize)
+	for i := range pool {
+		v := median * math.Exp(sigma*rng.NormFloat64())
+		if v < 0 {
+			v = 0
+		}
+		iv := int(math.Round(v))
+		if iv > maxVal {
+			iv = maxVal
+		}
+		pool[i] = iv
+	}
+	return func(r *rand.Rand, _ GenContext) any {
+		return pool[r.Intn(proxyPoolSize)]
+	}
+}
+
 // proxyZipfPool pre-computes Zipfian selection indices.
 func proxyZipfPool(ipPool []string, rng *rand.Rand, skew float64) ArgGenerator {
 	size := len(ipPool)
@@ -127,7 +146,7 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	}
 
 	// Handling servers: ~836 unique (internal IPs)
-	serverPool := make([]string, 200)
+	serverPool := make([]string, 800)
 	for i := range serverPool {
 		serverPool[i] = fmt.Sprintf("100.64.%d.%d", rng.Intn(256), rng.Intn(256))
 	}
@@ -258,6 +277,9 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		"nginx.access", "system.syslog", "kubernetes.pod", "apm.app",
 		"elastic_agent", "endpoint.events", "cloud.audit", "fleet_server",
 		"synthetics.http", "profiling.events", "logs.generic", "metrics.generic",
+		"system.auth", "kubernetes.container", "kubernetes.event", "apm.error",
+		"apm.transaction", "elastic_agent.metricbeat", "endpoint.alerts",
+		"cloud.vpcflow", "osquery_manager.result", "ti_abusech.malware",
 	}
 	dynamicIndices := []string{
 		".ds-logs-nginx.access-default-2024.01",
@@ -267,8 +289,14 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		".fleet-actions-results",
 		".kibana_analytics",
 		".kibana_security_session",
+		".ds-logs-system.auth-default-2024.01",
+		".ds-metrics-kubernetes.container-default-2024.01",
+		".ds-logs-elastic_agent-default-2024.01",
+		".ds-logs-endpoint.alerts-default-2024.01",
+		".ds-logs-cloud.vpcflow-default-2024.01",
+		".internal.alerts-security.alerts-default-2024.01",
 	}
-	const dynamicPathPoolSize = 8192
+	const dynamicPathPoolSize = 16384
 	dynamicPathPool := make([]string, dynamicPathPoolSize)
 	for i := range dynamicPathPool {
 		tpl := dynamicPathTemplates[rng.Intn(len(dynamicPathTemplates))]
@@ -290,9 +318,9 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		return dynamicPathPool[r.Intn(dynamicPathPoolSize)]
 	}
 
-	// 70% static weighted paths, 30% dynamic paths
+	// 60% static weighted paths, 40% dynamic paths
 	requestPathGen := func(r *rand.Rand, ctx GenContext) any {
-		if r.Intn(10) < 7 {
+		if r.Intn(10) < 6 {
 			return staticPathGen(r, ctx)
 		}
 		return dynamicPathGen(r, ctx)
@@ -380,7 +408,7 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	})
 
 	tlsCipherGen := proxyWeightedIntPool(rng, []weightedInt{
-		{4865, 997}, {49199, 3},
+		{4865, 850}, {49199, 100}, {49195, 30}, {49200, 20},
 	})
 
 	// Numeric distributions calibrated from real percentiles
@@ -389,8 +417,8 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	proxyTimeGen := proxyLogNormalPool(rng, 107, 0.3)
 	reqLenGen := proxyLogNormalPool(rng, 166, 3.5)
 	respLenGen := proxyLogNormalPool(rng, 482, 3.0)
-	connConcGen := proxyLogNormalPool(rng, 12, 2.5)
-	reqConcGen := proxyLogNormalPool(rng, 3, 2.0)
+	connConcGen := proxyLogNormalPoolClamped(rng, 12, 1.5, 1000)
+	reqConcGen := proxyLogNormalPoolClamped(rng, 3, 1.5, 300)
 
 	// Cheap pool-based generators
 	podGen := RandomFrom(podPool...)
@@ -422,9 +450,9 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		{"request_host", hostGen},
 		{"handling_pod", podGen},
 		{"handling_zone", zoneGen},
-		{"user_agent.original", userAgentGen},
 	}
 	infoRare := []RareAttrGen{
+		{"user_agent.original", 0.31, userAgentGen},
 		{"serverless.project.type", 0.30, serverlessTypeGen},
 		{"tls_version", 0.15, tlsVersionGen},
 		{"tls_cipher", 0.15, tlsCipherGen},
@@ -487,8 +515,8 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		{"status_code", proxyWeightedIntPool(rng, []weightedInt{{429, 50}, {409, 20}, {200, 20}, {503, 10}})},
 		{"action", actionGen},
 		{"application_type", appTypeGen},
-		{"response_time", proxyLogNormalPool(rng, 2000, 0.8)},
-		{"backend_response_time", proxyLogNormalPool(rng, 1500, 0.8)},
+		{"response_time", proxyLogNormalPool(rng, 500, 0.8)},
+		{"backend_response_time", proxyLogNormalPool(rng, 400, 0.8)},
 		{"proxy_internal_time_us", proxyTimeGen},
 		{"request_length", reqLenGen},
 		{"response_length", respLenGen},
@@ -519,8 +547,8 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		{"status_code", proxyWeightedIntPool(rng, []weightedInt{{503, 40}, {500, 20}, {404, 20}, {401, 10}, {400, 10}})},
 		{"action", actionGen},
 		{"application_type", appTypeGen},
-		{"response_time", proxyLogNormalPool(rng, 5000, 1.0)},
-		{"backend_response_time", proxyLogNormalPool(rng, 4000, 1.0)},
+		{"response_time", proxyLogNormalPool(rng, 1000, 1.0)},
+		{"backend_response_time", proxyLogNormalPool(rng, 800, 1.0)},
 		{"proxy_internal_time_us", proxyTimeGen},
 		{"request_length", reqLenGen},
 		{"response_length", respLenGen},

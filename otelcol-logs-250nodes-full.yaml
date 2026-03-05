@@ -105,7 +105,7 @@ receivers:
         scale: 54                      # 27 nodes × 2 pods/node
         logs_per_interval: 10          # base: 54 × 10 = 540/interval
         concurrency: 6
-        emit_trace_context: false
+        emit_trace_context: true
         template_vars:
           nodes: 27
           pods_per_node: 2
@@ -131,7 +131,7 @@ receivers:
         scale: 54                      # 18 nodes × 3 pods/node
         logs_per_interval: 40          # base: 54 × 40 = 2,160/interval
         concurrency: 6
-        emit_trace_context: true
+        emit_trace_context: false
         instance_volume_skew: 1.9
         volume_profile:
           burst_probability: 0.3

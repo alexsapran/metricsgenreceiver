@@ -1,7 +1,7 @@
 # Log Generation Tuning Guide
 
-This guide explains every tunable parameter of the log generator and how they interact.
-It is designed for both humans configuring benchmarks and LLMs assisting with configuration.
+Explains every tunable parameter of the log generator and how they interact.
+For humans configuring benchmarks and LLMs assisting with configuration.
 
 ## 1. The Log Generation Pipeline
 
@@ -184,10 +184,8 @@ effective_logs = logs_per_interval × diurnal × volume × instance_multiplier[i
 | 04:00 (trough) | 0.2 | Quiet (0.2x) | 0.2 | 2 |
 | 09:00 (mid) | ~1.6 | Normal | 1.0 | 80 |
 
-Key insight: volume_profile bursts **scale proportionally** with the diurnal baseline.
-A 5x burst at peak (3.0x) produces 15x the base rate, while the same burst
-at trough (0.2x) produces only 1x the base rate. This mirrors real-world behavior
-where anomalies scale with underlying traffic.
+Bursts scale with the diurnal baseline: a 5x burst at peak (3.0x) produces 15x
+the base rate, while the same burst at trough (0.2x) produces only 1x.
 
 All three volume-shaping features are independently optional — when omitted, each
 multiplier defaults to 1.0.
@@ -296,7 +294,7 @@ matching real-world Kubernetes deployments where workloads are managed different
 | goapp | CI/CD deployed | `telemetry.sdk.name`, `telemetry.sdk.language`, `team` label | No Helm labels — deployed via CI pipeline |
 | mysql | Operator-managed | `managed-by: mysql-operator`, `mysql.oracle.com/cluster` | No `helm.sh/chart` or `part-of` |
 | redis | Helm StatefulSet | `helm.sh/chart`, `managed-by: Helm`, `redis.io/role` | No `part-of`; has master/replica role |
-| proxy | K8s Deployment per-AZ | `cloud.*`, `host.*`, `container.image.name`, `os.type` | Cloud infra attrs; per-AZ deployments & replicasets |
+| proxy | K8s Deployment per-AZ | Per-AZ `k8s.deployment.name`, `k8s.replicaset.name` | Per-AZ deployments; `cloud.*`, `host.*`, `os.type` are universal across all profiles |
 
 ### Record-level attributes (per template)
 
@@ -346,11 +344,10 @@ Needle counts are reported at shutdown for verification.
 emit_trace_context: true   # supported by k8s-goapp and k8s-proxy profiles
 ```
 
-When enabled, each log record gets a random `trace_id` and `span_id`.
-Supported for profiles representing instrumented or trace-aware apps (goapp, proxy).
-Has no effect on nginx, mysql, or redis profiles. For production-like trace presence
-(~3%), enable it only on proxy with production-scale topology; the proxy profile
-contributes ~40% of total volume, yielding ~40% × ~7% ≈ ~3% overall presence.
+When enabled, every log record from that scenario gets a random `trace_id` and `span_id`.
+Supported by goapp and proxy profiles; has no effect on nginx, mysql, or redis.
+Since all records in the enabled scenario get trace context, the overall presence
+equals that scenario's share of total volume (e.g. proxy at ~40% → ~40% trace presence).
 
 ### Topology: `scale`, `concurrency`, `template_vars`
 
@@ -383,8 +380,8 @@ All random generation is seeded via the `seed` parameter. Same seed + same confi
 The `diurnal_profile` is purely time-based (no RNG), so it's deterministic by construction.
 The `volume_profile` uses the seeded RNG, so burst/quiet patterns are reproducible.
 
-Note: using `start_now_minus` or `end_now_minus` makes timestamps non-deterministic
-(since they depend on wall clock), but the content of logs is still reproducible.
+`start_now_minus` / `end_now_minus` make timestamps non-deterministic (wall-clock dependent);
+log content remains reproducible.
 
 ---
 
@@ -530,10 +527,7 @@ log_scenarios:
 
 ## 8. Data Quality Evolution
 
-The log generator has been iteratively calibrated against sampled production data
-from an Elastic Cloud cluster. Each round of improvements addressed gaps identified
-by comparing generated output with a stratified sample of ~37K production documents
-across 3.9M total docs.
+Iteratively calibrated against ~37K sampled production documents from an Elastic Cloud cluster (3.9M total docs).
 
 ### Before vs After (initial → RC10)
 

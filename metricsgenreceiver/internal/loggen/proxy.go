@@ -10,15 +10,6 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
-// proxyHexN generates a deterministic hex string of length n.
-func proxyHexN(rng *rand.Rand, n int) string {
-	const hexChars = "0123456789abcdef"
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = hexChars[rng.Intn(16)]
-	}
-	return string(b)
-}
 
 const proxyPoolSize = 4096
 
@@ -134,7 +125,7 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	podPool := make([]string, 200)
 	podPrefixes := []string{"svc-search", "svc-data", "svc-master", "svc-ingest", "svc-dashboard", "svc-tracing"}
 	for i := range podPool {
-		podPool[i] = podPrefixes[rng.Intn(len(podPrefixes))] + "-" + proxyHexN(rng, 8) + "-" + proxyHexN(rng, 5)
+		podPool[i] = podPrefixes[rng.Intn(len(podPrefixes))] + "-" + randomHexString(rng, 8) + "-" + randomHexString(rng, 5)
 	}
 
 	// Handling nodes: ~126 unique
@@ -160,7 +151,7 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	// Handling projects: hex32 IDs, ~301 unique
 	projectPool := make([]string, 100)
 	for i := range projectPool {
-		projectPool[i] = proxyHexN(rng, 32)
+		projectPool[i] = randomHexString(rng, 32)
 	}
 
 	// Handling applications: {project}.{type}, ~557 unique
@@ -203,7 +194,7 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 	authPool := make([]string, 18)
 	authPrefixes := []string{"svc-account-", "internal-", "system-"}
 	for i := range authPool {
-		authPool[i] = authPrefixes[rng.Intn(len(authPrefixes))] + proxyHexN(rng, 8)
+		authPool[i] = authPrefixes[rng.Intn(len(authPrefixes))] + randomHexString(rng, 8)
 	}
 
 	// IP pool
@@ -310,7 +301,7 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 			dynamicPathPool[i] = fmt.Sprintf(tpl, item)
 		default:
 			item := dynamicIndices[rng.Intn(len(dynamicIndices))]
-			id := proxyHexN(rng, 12)
+			id := randomHexString(rng, 12)
 			dynamicPathPool[i] = fmt.Sprintf(tpl, item, id)
 		}
 	}

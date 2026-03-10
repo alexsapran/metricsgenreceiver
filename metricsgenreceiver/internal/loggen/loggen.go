@@ -13,6 +13,17 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
+const hexChars = "0123456789abcdef"
+
+// randomHexString generates a hex string of the given length using rng.
+func randomHexString(rng *rand.Rand, length int) string {
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = hexChars[rng.Intn(16)]
+	}
+	return string(b)
+}
+
 // ParseSeverity converts a severity string to plog.SeverityNumber.
 // Empty or unknown values default to SeverityNumberError.
 func ParseSeverity(s string) plog.SeverityNumber {
@@ -620,13 +631,8 @@ func RandomDuration(minMs, maxMs int) ArgGenerator {
 }
 
 func RandomID(length int) ArgGenerator {
-	const hexChars = "0123456789abcdef"
 	return func(r *rand.Rand, _ GenContext) any {
-		b := make([]byte, length)
-		for i := range b {
-			b[i] = hexChars[r.Intn(16)]
-		}
-		return string(b)
+		return randomHexString(r, length)
 	}
 }
 
@@ -887,7 +893,6 @@ func NginxErrorDetails(minBytes, maxBytes int, rng *rand.Rand) ArgGenerator {
 }
 
 func buildLargeJSONPayload(r *rand.Rand, targetLen int) string {
-	const hexChars = "0123456789abcdef"
 	var b strings.Builder
 	b.Grow(targetLen + 256)
 	b.WriteString(`{"items":[`)
@@ -956,7 +961,6 @@ func buildRedisSlowlogOutput(r *rand.Rand, targetLen int) string {
 	b.Grow(targetLen + 256)
 	cmds := [...]string{"GET", "SET", "HGETALL", "LRANGE", "SMEMBERS", "ZRANGE"}
 	id := make([]byte, 12)
-	const hexChars = "0123456789abcdef"
 	for b.Len() < targetLen {
 		b.WriteString(strconv.Itoa(r.Intn(100) + 1))
 		b.WriteString(") 1) (integer) ")
@@ -1301,7 +1305,6 @@ func buildIntChoiceStrPool(rng *rand.Rand, choices []int) []string {
 
 // buildHexStrPool creates a pool of random hex strings.
 func buildHexStrPool(rng *rand.Rand, length int) []string {
-	const hexChars = "0123456789abcdef"
 	pool := make([]string, longTailPoolSize)
 	b := make([]byte, length)
 	for i := range pool {

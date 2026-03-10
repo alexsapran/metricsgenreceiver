@@ -140,12 +140,37 @@ stateDiagram-v2
 - The multiplier range `[min, max]` creates variety between bursts
 - `quiet_multiplier: 0.2` simulates overnight/maintenance lulls
 
-### 2c. How They Compose
+### 2c. `instance_volume_skew` — Per-Instance Volume Variation
 
-Diurnal shapes the baseline; volume_profile adds random variance on top:
+Applies a **deterministic** per-instance multiplier so that not all pod replicas emit
+the same amount of logs. Uses a log-normal distribution seeded once at init.
+
+**Parameter:**
+
+- `instance_volume_skew` (float, default `0`): sigma of the underlying normal distribution
+
+| `instance_volume_skew` | Effect |
+|------------------------|--------|
+| 0 | Flat — all instances emit the same volume |
+| 1.0 | Moderate variation — instances range from ~0.3x to ~3x base rate |
+| 1.5 | Wide spread — instances range from ~0.1x to ~5x base rate |
+| 2.0 | Extreme — a few "hot" pods dominate the log volume |
+
+Multipliers are normalized so the mean is 1.0 — total volume is preserved,
+but it is redistributed unevenly across instances. This mirrors production
+behavior where a small number of pods handle disproportionate traffic.
+
+```yaml
+instance_volume_skew: 1.5   # wide variation across 120 nginx pods
+```
+
+### 2d. How They Compose
+
+Diurnal shapes the baseline; volume_profile adds random variance;
+instance_volume_skew redistributes volume across pods:
 
 ```
-effective_logs = logs_per_interval × diurnal × volume
+effective_logs = logs_per_interval × diurnal × volume × instance_multiplier[i]
 ```
 
 **Worked example** with `logs_per_interval: 50`:
@@ -164,7 +189,8 @@ A 5x burst at peak (3.0x) produces 15x the base rate, while the same burst
 at trough (0.2x) produces only 1x the base rate. This mirrors real-world behavior
 where anomalies scale with underlying traffic.
 
-Either feature is independently optional — when omitted, its multiplier defaults to 1.0.
+All three volume-shaping features are independently optional — when omitted, each
+multiplier defaults to 1.0.
 
 ---
 
@@ -331,12 +357,16 @@ scale: 30              # total pod instances to simulate
 concurrency: 10        # parallel goroutines for generation
 template_vars:
   nodes: 3             # k8s nodes (pods distributed across nodes)
+  pods_per_node: 10    # pods per node (scale = nodes × pods_per_node)
 ```
 
 - `scale` = total pod instances. Each gets its own resource attributes.
 - `concurrency` > 0 enables parallel generation (scale must be divisible by concurrency).
 - `template_vars.nodes` controls `k8s.node.name` cardinality.
+- `template_vars.pods_per_node` controls pod density per node.
 - Formula: `scale = nodes × pods_per_node`.
+- Pods are assigned to nodes as `node = instanceID % nodes`, so overlapping
+  node ranges across scenarios create realistic colocation (multiple services per node).
 
 ### Timing
 
@@ -444,6 +474,7 @@ log_scenarios:
     logs_per_interval: 35
     concurrency: 8
     emit_trace_context: true      # proxy is trace-aware
+    instance_volume_skew: 1.9     # realistic hot-pod skew
     template_vars:
       nodes: 5
 ```
@@ -454,6 +485,7 @@ Key characteristics:
 - **Log-normal timing**: response_time p50=2ms, proxy_internal_time_us p50=107µs
 - **Rare attrs on INFO**: fields like `tls_version`, `client_meta`, `serverless.project.type` appear at 3–30% presence
 - **Per-AZ topology**: resource attributes include `cloud.*`, `host.*`, per-AZ deployment names
+- **Universal cloud/infra fields**: all profiles now include `cloud.*`, `host.*`, `os.type` on every document
 
 ### Stress Test
 
@@ -490,4 +522,91 @@ log_scenarios:
       zipf_skew: 1.2
     template_vars:
       nodes: 20
+```
+
+---
+
+## 8. Data Quality Evolution
+
+The log generator has been iteratively calibrated against sampled production data
+from an Elastic Cloud cluster. Each round of improvements addressed gaps identified
+by comparing generated output with a stratified sample of ~37K production documents
+across 3.9M total docs.
+
+### Before vs After (initial → RC10)
+
+| Dimension | Initial (RC5) | RC10 (current) | Production |
+|-----------|--------------|----------------|------------|
+| **Overall realism score** | 4/10 | 8/10 | — |
+| **Unique fields** | 47 | 130+ | 162 |
+| **Field count mean** | 27.9 | 37+ | 44.6 |
+| **Field count stddev** | 2.3 | 8.6 | 10.6 |
+| **Field count p95** | 32 | 55 | 81 |
+| **Fields below 1% presence** | 11 | 61+ | 97 |
+| **Severity (INFO %)** | ~50% | ~82% | ~80–85% |
+| **`error.message` presence** | 0% | ~60% | ~71% |
+| **`error.message` max size** | — | ~79 KB | ~82 KB |
+| **Stack trace mean / max** | — | ~1.6 KB / ~8.8 KB | ~3 KB / ~8.5 KB |
+| **`request_id` cardinality** | 0 | ~22M | ~2.9M |
+| **`request_path` cardinality** | 36 | ~16K | ~10K |
+| **Token cardinality** | 37K | ~48K | 271 (narrow sample) |
+| **body.text mean / max** | 172 B / 258 B | ~159 B / ~7.3 KB | 80 B / 811 B |
+| **Cloud/infra field presence** | 0% | 100% | 100% |
+| **Numeric field types** | 5 | 17+ | 17 |
+| **`severity_text` presence** | 100% | ~65% | ~65% |
+| **`trace_id` / `span_id` presence** | 0% | ~3% | ~3% |
+| **Backend response time mean** | — | ~500 ms | ~424 ms |
+
+### Key improvements by round
+
+**RC5 → RC8** (realism 4/10 → 6/10):
+- Added HTTP proxy / API gateway archetype with 30+ unique fields
+- Added `error.message` (~60%) and `log.origin.stack_trace` (~20%) to all profiles
+- Added 61 long-tail fields at <1% presence via schedule-based LongTailSet
+- Rebalanced severity to 82% INFO, 0% FATAL
+- Added Zipfian IP pools, realistic URL route templates, typed HTTP status codes
+- Added `volume_profile` (burst/quiet state machine) and `diurnal_profile` (cosine curve)
+- Added per-service resource attributes (different K8s labels per deployment model)
+
+**RC8 → RC9** (realism 6/10 → 7/10):
+- Fixed `request_id` cardinality: 4K → 22M (was 697x too low)
+- Fixed `error.message` max size: 32 bytes → 79 KB
+- Improved `request_path` cardinality: 35 → 1,908
+- Improved stack traces: mean 842 B → 1,576 B
+- Added `instance_volume_skew` for per-instance log volume variation
+- Token cardinality +20% (40K → 48K)
+
+**RC9 → RC10** (realism 7/10 → 8/10):
+- Made `cloud.*`, `host.*`, `os.type`, `k8s.node.uid` universal (100% presence on all profiles)
+- Calibrated `backend_response_time` mean from ~3,500 ms down to ~500 ms
+- Moved `emit_trace_context` from goapp to proxy (~3% presence, matching production)
+- Emitted `severity_text` on ~65% of records instead of 100%
+- Moved `user_agent.original` to rare-attr at 31% on proxy INFO logs
+- Increased stack trace frame caps (25→80 for Go, 30→80 for Java) for up to ~8.8 KB traces
+- Clamped `route_connection_concurrency` and `route_request_concurrency` to production ranges
+- Diversified `tls_cipher` weights (4 values instead of 2)
+- Expanded dynamic URL path pool to 16,384 with 60/40 static/dynamic split
+- Increased `handling_server` pool from 200 → 800
+
+### Remaining known gaps
+
+- **Document width**: production p95 = 81 fields vs generated p95 = 55 (would require new archetypes)
+- **`data_stream` fields**: production has `data_stream.dataset`/`namespace`/`type` on every document; the generator relies on the ES exporter to derive these
+- **Host/node cardinality**: 30 nodes vs production's 82 (configurable via `template_vars.nodes`)
+- **`request_path` cardinality**: 16K generated vs 10K production — a strength for benchmark pressure
+
+### Running the benchmark
+
+Use `make bench` for a quick single-iteration benchmark (~1h of simulated data, ~5 services):
+
+```bash
+make bench
+```
+
+For a full-scale 250-node simulation (6h simulated, ~56M logs), use the
+`otelcol-logs-250nodes-full.yaml` configuration:
+
+```bash
+make install
+./otelcol-dev/otelcol --config ./otelcol-logs-250nodes-full.yaml
 ```

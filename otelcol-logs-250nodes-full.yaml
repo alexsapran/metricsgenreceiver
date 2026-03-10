@@ -1,10 +1,11 @@
 receivers:
   metricsgen:
-    start_now_minus: 4h
-    interval: 5s
-    interval_jitter_std_dev: 50ms
+    start_now_minus: 6h
+    interval: 10s
+    interval_jitter_std_dev: 500ms
     real_time: false
     exit_after_end: true
+    exit_after_end_timeout: 10s
     seed: 42
     log_scenarios:
       # ── cluster topology (30 nodes, 298 pods, 9 services) ────
@@ -13,24 +14,23 @@ receivers:
       #
       #   Scenario   nodes  scale  pods/node  base/interval  actual avg/interval
       #   ─────────  ─────  ─────  ─────────  ─────────────  ───────────────────
-      #   nginx         30    120      4        2,400          12,488
-      #   mysql         10     20      2          120             603
+      #   nginx         30    120      4        2,400          12,104
+      #   mysql         10     20      2          120             607
       #   redis         10     50     ~5          400             401
-      #   goapp         27     54      2          540           2,775
-      #   proxy         18     54      3        2,160          11,063
-      #                                  base ≈5,620/5s   actual ≈27,330/5s
+      #   goapp         27     54      2          540           2,758
+      #   proxy         18     54      3        2,160          10,200
+      #                                  base ≈5,620/10s  actual ≈26,070/10s
       #
       # "base" = scale × logs_per_interval (no volume modulation).
-      # "actual avg" = observed mean over 4h with volume_profile bursts
-      #   and instance_volume_skew applied. Total: ~78.7M logs / 4h.
+      # "actual avg" = observed mean over 6h with volume_profile bursts
+      #   and instance_volume_skew applied. Total: ~56.3M logs / 6h.
       #
       # Node colocation tiers (30 distinct nodes):
       #   nodes 0-9   (10)  → nginx + mysql + redis + goapp + proxy
       #   nodes 10-17  (8)  → nginx + goapp + proxy
       #   nodes 18-26  (9)  → nginx + goapp
       #   nodes 27-29  (3)  → nginx only
-
-      # Nginx ingress controller — 4 pods/node on 30 nodes (45.7% of total volume)
+      # Nginx ingress controller — 4 pods/node on 30 nodes (43.7% of total volume)
       - path: builtin/k8s-nginx
         scale: 120                     # 30 nodes × 4 pods/node
         logs_per_interval: 20          # base: 120 × 20 = 2,400/interval
@@ -58,7 +58,7 @@ receivers:
               error.type: "timeout"
               upstream.host: "backend-svc:8080"
 
-      # MySQL database — StatefulSet on 10 nodes (2.2% of total volume)
+      # MySQL database — StatefulSet on 10 nodes (2.4% of total volume)
       - path: builtin/k8s-mysql
         scale: 20                      # 10 nodes × 2 pods/node
         logs_per_interval: 6           # base: 20 × 6 = 120/interval
@@ -98,14 +98,14 @@ receivers:
         template_vars:
           nodes: 10
 
-      # Go microservices — 2 pods/node on 27 nodes (10.2% of total volume)
+      # Go microservices — 2 pods/node on 27 nodes (9.7% of total volume)
       # 5 sub-services: api-gateway, user-service, order-service,
       #   payment-service, notification-service
       - path: builtin/k8s-goapp
         scale: 54                      # 27 nodes × 2 pods/node
         logs_per_interval: 10          # base: 54 × 10 = 540/interval
         concurrency: 6
-        emit_trace_context: true
+        emit_trace_context: false
         template_vars:
           nodes: 27
           pods_per_node: 2
@@ -126,12 +126,12 @@ receivers:
           quiet_duration_min: 8
           quiet_duration_max: 24
 
-      # HTTP proxy / API gateway — 3 pods/node on 18 nodes (40.5% of total volume)
+      # HTTP proxy / API gateway — 3 pods/node on 18 nodes (42.7% of total volume)
       - path: builtin/k8s-proxy
         scale: 54                      # 18 nodes × 3 pods/node
         logs_per_interval: 40          # base: 54 × 40 = 2,160/interval
         concurrency: 6
-        emit_trace_context: false
+        emit_trace_context: true
         instance_volume_skew: 1.9
         volume_profile:
           burst_probability: 0.3

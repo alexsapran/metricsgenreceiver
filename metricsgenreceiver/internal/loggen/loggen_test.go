@@ -180,7 +180,7 @@ func TestGenericProfile(t *testing.T) {
 	assert.Equal(t, plog.SeverityNumberInfo, sev)
 }
 
-// --- Tests for Work Stream 1b generators ---
+// Tests for ArgGenerator helpers (UUID, LogNormalInt, OptionalAttr, etc.)
 
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 

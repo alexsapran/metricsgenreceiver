@@ -109,24 +109,8 @@ func BenchmarkLogsGenReceiver(b *testing.B) {
 	})
 
 	b.Run("single-nginx", func(b *testing.B) {
-		startTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-		cfg := &Config{
-			StartTime:            startTime,
-			EndTime:              startTime.Add(1 * time.Hour),
-			Interval:             5 * time.Second,
-			IntervalJitterStdDev: 10 * time.Millisecond,
-			RealTime:             false,
-			Seed:                 42,
-			LogScenarios: []LogScenarioCfg{
-				{
-					Path:            "builtin/k8s-nginx",
-					Scale:           30,
-					LogsPerInterval: 50,
-					Concurrency:     10,
-					TemplateVars:    map[string]any{"nodes": 10},
-				},
-			},
-		}
+		cfg := benchConfig()
+		cfg.LogScenarios = cfg.LogScenarios[:1] // keep only nginx
 		runBench(b, cfg)
 	})
 }

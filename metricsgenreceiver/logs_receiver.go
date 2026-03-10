@@ -433,7 +433,7 @@ func (r *LogsGenReceiver) appendInstanceLogs(rng *rand.Rand, currentTime time.Ti
 		var sev plog.SeverityNumber
 		body, sev, bodyBuf = loggen.GenerateFromPreparedInto(rng, scn.prepared, instanceTime, reusableAttrs, argsBuf, bodyBuf)
 		lr.SetSeverityNumber(sev)
-		if i%20 < 13 {
+		if i%20 < 13 { // ~65% of records get severity_text, matching production presence
 			lr.SetSeverityText(severityText(sev))
 		}
 		lr.Body().SetStr(body)

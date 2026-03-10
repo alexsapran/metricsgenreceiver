@@ -462,9 +462,6 @@ type IPPoolConfig struct {
 	ZipfSkew float64  // Zipf s parameter (default: 1.5); higher = more skewed
 }
 
-// ZipfianIP returns an ArgGenerator that selects from a pre-generated pool of IPs
-// using a Zipfian (power-law) distribution. The pool is built deterministically
-// from the configured CIDRs using the provided rng. If cfg is nil, defaults are used.
 // buildIPPool generates a deterministic pool of IP strings from the given CIDRs.
 func buildIPPool(rng *rand.Rand, cidrs []string, poolSize int) []string {
 	type cidrRange struct {

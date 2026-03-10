@@ -130,8 +130,8 @@ func (t *resourceTemplateModel) UUID() string {
 	return uid.String()
 }
 
-func (t *resourceTemplateModel) RandomHex(len int) string {
-	var buf = make([]byte, len/2)
+func (t *resourceTemplateModel) RandomHex(n int) string {
+	var buf = make([]byte, n/2)
 	t.rand.Read(buf)
 	return hex.EncodeToString(buf)
 }

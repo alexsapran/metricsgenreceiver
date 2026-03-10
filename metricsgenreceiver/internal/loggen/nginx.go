@@ -6,10 +6,6 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
-var nginxPaths = []string{
-	"/api/v1/orders", "/health", "/api/v1/products", "/", "/api/v1/health", "/metrics", "/favicon.ico",
-}
-
 // nginxRouteTemplates are parameterized routes for http.url (low cardinality).
 // Use {id} placeholder; RouteWithRandomID substitutes it for the log body.
 var nginxRouteTemplates = []string{

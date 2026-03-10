@@ -343,12 +343,14 @@ Needle counts are reported at shutdown for verification.
 ### Trace context
 
 ```yaml
-emit_trace_context: true   # effective for k8s-goapp and k8s-proxy profiles
+emit_trace_context: true   # supported by k8s-goapp and k8s-proxy profiles
 ```
 
 When enabled, each log record gets a random `trace_id` and `span_id`.
-Meaningful for profiles representing instrumented or trace-aware apps (goapp, proxy).
-Has no effect on nginx, mysql, or redis profiles.
+Supported for profiles representing instrumented or trace-aware apps (goapp, proxy).
+Has no effect on nginx, mysql, or redis profiles. For production-like trace presence
+(~3%), enable it only on proxy with production-scale topology; the proxy profile
+contributes ~40% of total volume, yielding ~40% × ~7% ≈ ~3% overall presence.
 
 ### Topology: `scale`, `concurrency`, `template_vars`
 
@@ -470,13 +472,14 @@ percentiles are calibrated from production data.
 ```yaml
 log_scenarios:
   - path: builtin/k8s-proxy
-    scale: 24                     # 8 pods × 3 AZs
+    scale: 24                     # 8 nodes × 3 pods/node
     logs_per_interval: 35
     concurrency: 8
     emit_trace_context: true      # proxy is trace-aware
     instance_volume_skew: 1.9     # realistic hot-pod skew
     template_vars:
-      nodes: 5
+      nodes: 8
+      pods_per_node: 3
 ```
 
 Key characteristics:
@@ -485,7 +488,6 @@ Key characteristics:
 - **Log-normal timing**: response_time p50=2ms, proxy_internal_time_us p50=107µs
 - **Rare attrs on INFO**: fields like `tls_version`, `client_meta`, `serverless.project.type` appear at 3–30% presence
 - **Per-AZ topology**: resource attributes include `cloud.*`, `host.*`, per-AZ deployment names
-- **Universal cloud/infra fields**: all profiles now include `cloud.*`, `host.*`, `os.type` on every document
 
 ### Stress Test
 
@@ -603,10 +605,10 @@ Use `make bench` for a quick single-iteration benchmark (~1h of simulated data, 
 make bench
 ```
 
-For a full-scale 250-node simulation (6h simulated, ~56M logs), use the
-`otelcol-logs-250nodes-full.yaml` configuration:
+For a full-scale simulation (6h simulated, 30 nodes, ~56M logs), use the
+`otelcol-logs-medium.yaml` configuration:
 
 ```bash
 make install
-./otelcol-dev/otelcol --config ./otelcol-logs-250nodes-full.yaml
+./otelcol-dev/otelcol --config ./otelcol-logs-medium.yaml
 ```

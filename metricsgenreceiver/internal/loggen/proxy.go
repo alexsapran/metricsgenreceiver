@@ -463,6 +463,7 @@ func ProxyProfile(rng *rand.Rand, ipCfg *IPPoolConfig) *AppProfile {
 		{"request_port", 0.15, portGen},
 		{"auth_user", 0.03, authGen},
 	}
+	// Two copies to give the full request template 2x weight vs the health-check template.
 	msgs = append(msgs,
 		MessageTemplate{Severity: plog.SeverityNumberInfo, Attrs: infoAttrs, RareAttrs: infoRare},
 		MessageTemplate{Severity: plog.SeverityNumberInfo, Attrs: infoAttrs, RareAttrs: infoRare},
